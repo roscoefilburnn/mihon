@@ -467,6 +467,10 @@
     <string name="scale_type_smart_fit">Smart fit</string>
     <string name="pref_navigate_pan">Pan wide images</string>
     <string name="pref_landscape_zoom">Automatically zoom into wide images</string>
+    <string name="pref_panel_detection_enabled">Enable panel detection</string>
+    <string name="pref_panel_detection_enabled_summary">Detect and encode comic panels as ACBF data when opening archive chapters, using on-device detection</string>
+    <string name="pref_panel_navigation">Tap through panels</string>
+    <string name="pref_panel_navigation_summary">Step through detected panels before turning the page</string>
     <string name="pref_zoom_start">Zoom start position</string>
     <string name="zoom_start_automatic">Automatic</string>
     <string name="zoom_start_left">Left</string>

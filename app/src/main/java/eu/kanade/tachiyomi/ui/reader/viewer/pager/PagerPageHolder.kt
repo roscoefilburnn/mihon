@@ -62,8 +62,38 @@ class PagerPageHolder(
      */
     private var loadJob: Job? = null
 
+    /**
+     * Index into [ReaderPage.panels] the view is currently zoomed to, or -1 if panel navigation
+     * hasn't advanced past the initial full-page view yet. A fresh holder is created per page
+     * (see [PagerViewerAdapter]/[ViewPagerAdapter]), so this never needs an explicit reset.
+     */
+    private var currentPanelIndex = -1
+
     init {
         loadJob = scope.launch { loadPageAndProcessStatus() }
+    }
+
+    /** Whether a rightward panel-nav tap should zoom to another panel instead of turning the page. */
+    fun hasNextPanelRight(): Boolean = hasNextPanel(forward = true)
+
+    /** Whether a leftward panel-nav tap should zoom to another panel instead of turning the page. */
+    fun hasNextPanelLeft(): Boolean = hasNextPanel(forward = false)
+
+    private fun hasNextPanel(forward: Boolean): Boolean {
+        val panelCount = page.panels?.size ?: return false
+        if (panelCount == 0) return false
+        return if (forward) currentPanelIndex < panelCount - 1 else currentPanelIndex > 0
+    }
+
+    fun advanceToNextPanelRight() = advancePanel(forward = true)
+
+    fun advanceToNextPanelLeft() = advancePanel(forward = false)
+
+    private fun advancePanel(forward: Boolean) {
+        val panels = page.panels ?: return
+        currentPanelIndex = if (forward) currentPanelIndex + 1 else currentPanelIndex - 1
+        val panel = panels.getOrNull(currentPanelIndex) ?: return
+        zoomToPanel(panel.rect)
     }
 
     /**
