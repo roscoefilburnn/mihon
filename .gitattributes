@@ -7,6 +7,9 @@
 # Gradle wrapper
 *.jar binary
 
+# ML models
+*.tflite binary
+
 # Images
 *.webp binary
 *.png binary
