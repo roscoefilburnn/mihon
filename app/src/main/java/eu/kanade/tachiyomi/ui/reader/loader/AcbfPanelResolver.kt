@@ -15,7 +15,7 @@ import mihon.core.panels.PanelPlanner
 import mihon.core.panels.PanelRect
 import mihon.core.panels.ReadingDirection
 import mihon.core.panels.TfliteChikaDetector
-import mihon.core.panels.WhitespaceGutterPanelDetector
+import mihon.core.panels.acbfeditor.AcbfEditorFrameDetector
 import nl.adaptivity.xmlutil.core.AndroidXmlReader
 import nl.adaptivity.xmlutil.serialization.XML
 import tachiyomi.core.common.util.system.logcat
@@ -36,9 +36,10 @@ private const val PER_PAGE_DETECTION_TIMEOUT_MS = 10_000L
  *
  * 1. An `.acbf` file already embedded in the archive (real, human-authored data) always wins.
  * 2. A previously-generated encoding cached for this exact archive (see [AcbfCache]).
- * 3. Otherwise, per page: the classical [WhitespaceGutterPanelDetector] first, falling back to
- *    the ML [TfliteChikaDetector] only when the classical pass is inconclusive. The winning
- *    boxes are planned into reading order by [planner] and the whole chapter's result is cached.
+ * 3. Otherwise, per page: the classical [AcbfEditorFrameDetector] first (edge/contour-based,
+ *    ported from ACBF Editor's own "Detect Frames"), falling back to the ML [TfliteChikaDetector]
+ *    only when the classical pass is inconclusive. The winning boxes are planned into reading
+ *    order by [planner] and the whole chapter's result is cached.
  *
  * This never reads from or mutates the user's original archive file — the ACBF document this
  * class produces for step 3 is written only to [AcbfCache], an app-private cache.
@@ -47,7 +48,7 @@ class AcbfPanelResolver(
     private val acbfCache: AcbfCache = Injekt.get(),
     private val xml: XML = Injekt.get(),
     private val readerPreferences: ReaderPreferences = Injekt.get(),
-    private val classicalDetector: PanelDetector = WhitespaceGutterPanelDetector(),
+    private val classicalDetector: PanelDetector = AcbfEditorFrameDetector(),
     private val mlDetector: PanelDetector = TfliteChikaDetector(Injekt.get<Application>()),
     private val planner: PanelPlanner = ChikaPanelPlanner(),
 ) {

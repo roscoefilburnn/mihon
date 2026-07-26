@@ -21,7 +21,8 @@ import java.nio.channels.FileChannel
 private const val MODEL_ASSET_PATH = "models/panel_detector.tflite"
 
 /**
- * ML fallback detector for pages the classical [WhitespaceGutterPanelDetector] can't confidently
+ * ML fallback detector for pages the classical [mihon.core.panels.acbfeditor.AcbfEditorFrameDetector]
+ * can't confidently
  * segment (bleed panels, splash pages, borderless/textured art). Decodes a YOLO-family
  * panel/text-balloon detector's output tensor using [YoloPanelDecoder] — ported verbatim from
  * batunii/chika (MPL-2.0, see [mihon.core.panels.chika]) — so this works with any compatible

@@ -42,10 +42,29 @@ notice on the resulting weights file above.
 `DetectionResult.Inconclusive` so the pipeline degrades to the classical detector / no panels
 for that page rather than failing.
 
-## Not ported: ACBF Editor
+## Ported from ACBF Editor 3.0 — GPLv3, not a "Larger Work" combination
 
-`WhitespaceGutterPanelDetector.kt` is an original implementation of the general class of
-technique (whitespace/gutter projection-profile segmentation) that ACBF Editor's own frame
-auto-detection is documented to use — not a port of its actual source. ACBF Editor's source is
-hosted on Launchpad (`lp:acbf`), which this environment's network policy does not allow
-reaching; its actual algorithm was not available to copy from.
+`src/main/kotlin/mihon/core/panels/acbfeditor/AcbfEditorFrameDetector.kt` is a Modification of
+ACBF Editor 3.0's `src/frames_editor.py` (`FramesEditorDialog.frames_detection()` and its
+`centroid_for_polygon()`/`area_for_polygon()`/`round_to()` helpers), supplied directly by the
+project owner as the `ACBFEditor3.0_linux.tar.gz` source distribution (Launchpad, where the
+project is hosted, is blocked by this environment's network egress policy, so this file was
+provided out-of-band rather than fetched).
+
+Original work Copyright (C) 2011-2024 Robert Kubik
+(https://github.com/ACBF-Advanced-Comic-Book-Format), licensed under the **GNU General Public
+License, version 3** (full text at `/LICENSE-GPL-3.0.txt` at the repository root) — a different
+and stricter license than chika's MPL 2.0. GPLv3 does not have MPL's file-level "Larger Work"
+carve-out: incorporating GPLv3-covered code into an Apache-2.0 application and distributing the
+result is a real copyleft conflict, not just an attribution/notice requirement. **This file is
+included on the basis that this build of Mihon is for personal use and is not being
+distributed.** If that changes, this specific detector needs to be removed, replaced, or the
+distribution's licensing reconsidered before shipping — the classical-detector fallback chain in
+`AcbfPanelResolver` degrades gracefully (falls through to the ML detector / no panels) if it's
+removed.
+
+The port uses OpenCV for Android (`org.opencv:opencv`, Apache-2.0-licensed, no distribution
+conflict of its own) to call the same primitives the original Python uses
+(`cv2.bilateralFilter`, `cv2.Canny`, `cv2.morphologyEx`, `cv2.findContours`, `cv2.approxPolyDP`,
+`cv2.moments`) rather than hand-reimplementing that image-processing pipeline, to stay faithful
+to the original's actual behavior.
