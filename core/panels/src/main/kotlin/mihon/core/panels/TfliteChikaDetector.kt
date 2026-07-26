@@ -1,90 +1,133 @@
 package mihon.core.panels
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import mihon.core.panels.chika.Letterbox
+import mihon.core.panels.chika.YoloPanelDecoder
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
+import java.io.FileNotFoundException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
-private const val MODEL_ASSET_PATH = "models/chika_manga109.tflite"
-private const val MODEL_INPUT_SIZE = 640
+private const val MODEL_ASSET_PATH = "models/panel_detector.tflite"
 
 /**
- * ML fallback detector: a YOLO-family TensorFlow Lite model (trained on Manga109-s), ported
- * conceptually from batunii/chika, for pages the classical [WhitespaceGutterPanelDetector]
- * can't confidently segment (bleed panels, splash pages, borderless/textured art).
+ * ML fallback detector for pages the classical [WhitespaceGutterPanelDetector] can't confidently
+ * segment (bleed panels, splash pages, borderless/textured art). Decodes a YOLO-family
+ * panel/text-balloon detector's output tensor using [YoloPanelDecoder] — ported verbatim from
+ * batunii/chika (MPL-2.0, see [mihon.core.panels.chika]) — so this works with any compatible
+ * model, not one specific set of trained weights.
  *
- * **Not wired up for real inference yet.** The asset-loading and 640x640 letterboxing pipeline
- * below is real, but [decodeOutputs] — turning the model's raw output tensor into
- * [DetectedBox]es — depends on that specific model's exact output tensor shape and box-encoding
- * convention (anchor layout, class ordering, NMS threshold, etc.), which were not available
- * without the actual `.tflite` file and its accompanying spec in hand. Wiring this up for real
- * is tracked separately; until then this always reports [DetectionResult.Inconclusive], which
- * safely no-ops in the resolver pipeline rather than fabricating boxes from guessed output
- * semantics.
+ * **No model asset is bundled here.** batunii/chika's own bundled model
+ * (`manga_panel_detector_int8.tflite`) is an Ultralytics-exported YOLO26n model whose embedded
+ * metadata declares it licensed under Ultralytics' AGPL-3.0 terms
+ * (https://ultralytics.com/license) — a real conflict with this Apache-2.0 project's
+ * distribution that needs an explicit decision (train/obtain a differently-licensed model,
+ * purchase an Ultralytics Enterprise license, or drop the ML fallback), not something to route
+ * around by quietly bundling the file anyway. Until a model is supplied at [MODEL_ASSET_PATH],
+ * this always reports [DetectionResult.Inconclusive], so the pipeline safely falls through to
+ * "no panels for this page" rather than fabricating detections.
+ *
+ * The inference path below assumes a float32 input/output model (the common case for a
+ * custom-trained replacement). An int8-quantized model — like chika's own, per its metadata —
+ * additionally needs its input/output quantization scale and zero-point applied, which isn't
+ * implemented here since it's specific to whichever model ends up bundled.
  */
 class TfliteChikaDetector(private val context: Context) : PanelDetector, Closeable {
 
+    private val decoder = YoloPanelDecoder.default()
     private val interpreter: Interpreter? by lazy { loadInterpreter() }
 
     override suspend fun detect(bitmap: Bitmap): DetectionResult {
         val model = interpreter
-            ?: return DetectionResult.Inconclusive("chika_manga109.tflite model asset not bundled")
+            ?: return DetectionResult.Inconclusive("no panel-detection model asset bundled")
 
-        val (letterboxed, _) = letterbox(bitmap, MODEL_INPUT_SIZE)
-        return decodeOutputs(model, letterboxed)
+        val inputSize = decoder.inputSize
+        val letterbox = Letterbox.fit(bitmap.width, bitmap.height, inputSize)
+        val inputBitmap = letterboxBitmap(bitmap, letterbox, inputSize)
+
+        try {
+            val inputBuffer = bitmapToFloatBuffer(inputBitmap, inputSize)
+            val outputShape = model.getOutputTensor(0).shape()
+            val outputSize = outputShape.fold(1) { acc, d -> acc * d }
+            val outputBuffer = ByteBuffer.allocateDirect(outputSize * 4).order(ByteOrder.nativeOrder())
+
+            model.run(inputBuffer, outputBuffer)
+
+            outputBuffer.rewind()
+            val raw = FloatArray(outputSize)
+            outputBuffer.asFloatBuffer().get(raw)
+
+            val result = decoder.decode(raw, outputShape, letterbox, bitmap.width, bitmap.height)
+            val boxes = result.panels.map { DetectedBox(rectOf(it), PanelKind.PANEL, confidence = 1f) } +
+                result.bubbles.map { DetectedBox(rectOf(it), PanelKind.BALLOON, confidence = 1f) }
+
+            return if (boxes.isEmpty()) {
+                DetectionResult.Inconclusive("model produced no boxes above threshold")
+            } else {
+                DetectionResult.Confident(boxes)
+            }
+        } finally {
+            if (inputBitmap !== bitmap) inputBitmap.recycle()
+        }
     }
+
+    private fun rectOf(panel: mihon.core.panels.chika.Panel) =
+        android.graphics.RectF(panel.left, panel.top, panel.right, panel.bottom)
 
     private fun loadInterpreter(): Interpreter? {
         return try {
             context.assets.openFd(MODEL_ASSET_PATH).use { fd ->
-                val buffer: MappedByteBuffer = FileInputStreamCompat.mapEntireFile(fd)
-                Interpreter(buffer)
+                Interpreter(mapEntireFile(fd))
             }
-        } catch (_: java.io.FileNotFoundException) {
-            // Model asset isn't bundled yet — see class doc.
+        } catch (_: FileNotFoundException) {
+            // Model asset isn't bundled — see class doc.
             null
         }
     }
 
-    /** Letterboxes [bitmap] into a square [targetSize]x[targetSize] canvas, returning the scale
-     * factor that was applied (needed to map detections back to page-normalized coordinates). */
-    private fun letterbox(bitmap: Bitmap, targetSize: Int): Pair<Bitmap, Float> {
-        val scale = targetSize.toFloat() / maxOf(bitmap.width, bitmap.height)
-        val scaledWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
-        val scaledHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
-
-        val output = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(output)
-        canvas.drawColor(android.graphics.Color.WHITE)
-
-        val matrix = Matrix().apply { setScale(scale, scale) }
-        val scaledBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-        val offsetX = (targetSize - scaledWidth) / 2f
-        val offsetY = (targetSize - scaledHeight) / 2f
-        canvas.drawBitmap(scaledBitmap, offsetX, offsetY, null)
-        if (scaledBitmap !== bitmap) scaledBitmap.recycle()
-
-        return output to scale
+    private fun mapEntireFile(fd: AssetFileDescriptor): MappedByteBuffer {
+        fd.createInputStream().use { input ->
+            return input.channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
+        }
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private fun decodeOutputs(model: Interpreter, letterboxedInput: Bitmap): DetectionResult {
-        // See class doc: needs the real model's output tensor spec to implement correctly.
-        return DetectionResult.Inconclusive("ML output decoding not yet implemented")
+    /** Letterboxes [bitmap] into a square [inputSize]x[inputSize] canvas per [letterbox]'s geometry. */
+    private fun letterboxBitmap(bitmap: Bitmap, letterbox: Letterbox, inputSize: Int): Bitmap {
+        val output = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawColor(Color.rgb(114, 114, 114)) // YOLO's standard grey letterbox padding
+
+        val matrix = Matrix().apply { setScale(letterbox.scale, letterbox.scale) }
+        val scaledBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        canvas.drawBitmap(scaledBitmap, letterbox.padX.toFloat(), letterbox.padY.toFloat(), null)
+        if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+
+        return output
+    }
+
+    /** RGB, normalized to `[0,1]`, NHWC float32 — Ultralytics' default export preprocessing. */
+    private fun bitmapToFloatBuffer(bitmap: Bitmap, inputSize: Int): ByteBuffer {
+        val buffer = ByteBuffer.allocateDirect(inputSize * inputSize * 3 * 4).order(ByteOrder.nativeOrder())
+        val pixels = IntArray(inputSize * inputSize)
+        bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        for (pixel in pixels) {
+            buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+            buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
+            buffer.putFloat((pixel and 0xFF) / 255f)
+        }
+        buffer.rewind()
+        return buffer
     }
 
     override fun close() {
         interpreter?.close()
-    }
-}
-
-private object FileInputStreamCompat {
-    fun mapEntireFile(fd: android.content.res.AssetFileDescriptor): MappedByteBuffer {
-        fd.createInputStream().use { input ->
-            return input.channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
-        }
     }
 }
