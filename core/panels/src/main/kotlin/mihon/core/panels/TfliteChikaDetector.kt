@@ -8,7 +8,9 @@ import android.graphics.Color
 import android.graphics.Matrix
 import mihon.core.panels.chika.Letterbox
 import mihon.core.panels.chika.YoloPanelDecoder
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.Tensor
 import java.io.Closeable
 import java.io.FileNotFoundException
 import java.nio.ByteBuffer
@@ -25,20 +27,16 @@ private const val MODEL_ASSET_PATH = "models/panel_detector.tflite"
  * batunii/chika (MPL-2.0, see [mihon.core.panels.chika]) — so this works with any compatible
  * model, not one specific set of trained weights.
  *
- * **No model asset is bundled here.** batunii/chika's own bundled model
- * (`manga_panel_detector_int8.tflite`) is an Ultralytics-exported YOLO26n model whose embedded
- * metadata declares it licensed under Ultralytics' AGPL-3.0 terms
- * (https://ultralytics.com/license) — a real conflict with this Apache-2.0 project's
- * distribution that needs an explicit decision (train/obtain a differently-licensed model,
- * purchase an Ultralytics Enterprise license, or drop the ML fallback), not something to route
- * around by quietly bundling the file anyway. Until a model is supplied at [MODEL_ASSET_PATH],
- * this always reports [DetectionResult.Inconclusive], so the pipeline safely falls through to
- * "no panels for this page" rather than fabricating detections.
+ * The bundled model asset (`assets/models/panel_detector.tflite`) is chika's own
+ * `manga_panel_detector_int8.tflite`, copied unmodified. Its own embedded metadata declares it
+ * licensed under Ultralytics' AGPL-3.0 terms (https://ultralytics.com/license) — a different,
+ * stricter license than chika's own MPL-2.0 code. **It is bundled here on the basis that this
+ * build is for personal use and is not being distributed** — see `core/panels/NOTICE.md` before
+ * ever shipping a release build or public fork with this asset included.
  *
- * The inference path below assumes a float32 input/output model (the common case for a
- * custom-trained replacement). An int8-quantized model — like chika's own, per its metadata —
- * additionally needs its input/output quantization scale and zero-point applied, which isn't
- * implemented here since it's specific to whichever model ends up bundled.
+ * The model is int8-quantized ("int8": true in its metadata); input/output tensors are
+ * quantized/dequantized per their own TFLite-reported scale and zero-point below, so this isn't
+ * hardcoded to one specific quantization scheme.
  */
 class TfliteChikaDetector(private val context: Context) : PanelDetector, Closeable {
 
@@ -54,17 +52,18 @@ class TfliteChikaDetector(private val context: Context) : PanelDetector, Closeab
         val inputBitmap = letterboxBitmap(bitmap, letterbox, inputSize)
 
         try {
-            val inputBuffer = bitmapToFloatBuffer(inputBitmap, inputSize)
-            val outputShape = model.getOutputTensor(0).shape()
+            val inputTensor = model.getInputTensor(0)
+            val outputTensor = model.getOutputTensor(0)
+            val outputShape = outputTensor.shape()
             val outputSize = outputShape.fold(1) { acc, d -> acc * d }
-            val outputBuffer = ByteBuffer.allocateDirect(outputSize * 4).order(ByteOrder.nativeOrder())
+
+            val inputBuffer = buildInputBuffer(inputBitmap, inputSize, inputTensor)
+            val outputBuffer = ByteBuffer.allocateDirect(outputSize * outputTensor.dataType().byteSize())
+                .order(ByteOrder.nativeOrder())
 
             model.run(inputBuffer, outputBuffer)
 
-            outputBuffer.rewind()
-            val raw = FloatArray(outputSize)
-            outputBuffer.asFloatBuffer().get(raw)
-
+            val raw = readOutput(outputBuffer, outputSize, outputTensor)
             val result = decoder.decode(raw, outputShape, letterbox, bitmap.width, bitmap.height)
             val boxes = result.panels.map { DetectedBox(rectOf(it), PanelKind.PANEL, confidence = 1f) } +
                 result.bubbles.map { DetectedBox(rectOf(it), PanelKind.BALLOON, confidence = 1f) }
@@ -113,18 +112,74 @@ class TfliteChikaDetector(private val context: Context) : PanelDetector, Closeab
         return output
     }
 
-    /** RGB, normalized to `[0,1]`, NHWC float32 — Ultralytics' default export preprocessing. */
-    private fun bitmapToFloatBuffer(bitmap: Bitmap, inputSize: Int): ByteBuffer {
-        val buffer = ByteBuffer.allocateDirect(inputSize * inputSize * 3 * 4).order(ByteOrder.nativeOrder())
+    /**
+     * RGB pixels normalized to `[0,1]` (Ultralytics' standard preprocessing), written as
+     * FLOAT32 or quantized to the input tensor's own INT8/UINT8 type + scale/zero-point.
+     */
+    private fun buildInputBuffer(bitmap: Bitmap, inputSize: Int, inputTensor: Tensor): ByteBuffer {
+        val dataType = inputTensor.dataType()
+        val buffer = ByteBuffer.allocateDirect(inputSize * inputSize * 3 * dataType.byteSize())
+            .order(ByteOrder.nativeOrder())
         val pixels = IntArray(inputSize * inputSize)
         bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+
+        val quant = inputTensor.quantizationParams()
+        val scale = quant.scale
+        val zeroPoint = quant.zeroPoint
+
         for (pixel in pixels) {
-            buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
-            buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
-            buffer.putFloat((pixel and 0xFF) / 255f)
+            val r = ((pixel shr 16) and 0xFF) / 255f
+            val g = ((pixel shr 8) and 0xFF) / 255f
+            val b = (pixel and 0xFF) / 255f
+            when (dataType) {
+                DataType.FLOAT32 -> {
+                    buffer.putFloat(r)
+                    buffer.putFloat(g)
+                    buffer.putFloat(b)
+                }
+                DataType.UINT8 -> {
+                    buffer.put(quantize(r, scale, zeroPoint).coerceIn(0, 255).toByte())
+                    buffer.put(quantize(g, scale, zeroPoint).coerceIn(0, 255).toByte())
+                    buffer.put(quantize(b, scale, zeroPoint).coerceIn(0, 255).toByte())
+                }
+                DataType.INT8 -> {
+                    buffer.put(quantize(r, scale, zeroPoint).coerceIn(-128, 127).toByte())
+                    buffer.put(quantize(g, scale, zeroPoint).coerceIn(-128, 127).toByte())
+                    buffer.put(quantize(b, scale, zeroPoint).coerceIn(-128, 127).toByte())
+                }
+                else -> error("Unsupported input tensor type: $dataType")
+            }
         }
         buffer.rewind()
         return buffer
+    }
+
+    private fun quantize(realValue: Float, scale: Float, zeroPoint: Int): Int {
+        if (scale == 0f) return zeroPoint
+        return Math.round(realValue / scale) + zeroPoint
+    }
+
+    private fun dequantize(quantizedValue: Int, scale: Float, zeroPoint: Int): Float {
+        return (quantizedValue - zeroPoint) * scale
+    }
+
+    /** Reads the output tensor, dequantizing to real-valued floats if it's INT8/UINT8. */
+    private fun readOutput(buffer: ByteBuffer, size: Int, outputTensor: Tensor): FloatArray {
+        buffer.rewind()
+        val dataType = outputTensor.dataType()
+        val result = FloatArray(size)
+        when (dataType) {
+            DataType.FLOAT32 -> buffer.asFloatBuffer().get(result)
+            DataType.UINT8, DataType.INT8 -> {
+                val quant = outputTensor.quantizationParams()
+                for (i in 0 until size) {
+                    val raw = if (dataType == DataType.UINT8) buffer.get().toInt() and 0xFF else buffer.get().toInt()
+                    result[i] = dequantize(raw, quant.scale, quant.zeroPoint)
+                }
+            }
+            else -> error("Unsupported output tensor type: $dataType")
+        }
+        return result
     }
 
     override fun close() {
