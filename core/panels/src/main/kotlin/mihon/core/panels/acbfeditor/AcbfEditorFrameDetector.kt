@@ -21,6 +21,7 @@ import mihon.core.panels.DetectionResult
 import mihon.core.panels.PanelBox
 import mihon.core.panels.PanelDetector
 import mihon.core.panels.PanelKind
+import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
@@ -66,7 +67,17 @@ class AcbfEditorFrameDetector(
     private val rowBucketSize: Double = 15.0,
 ) : PanelDetector {
 
+    companion object {
+        // OpenCV for Android ships its native library inside this AAR but doesn't load it
+        // automatically — the first touch of any org.opencv.* class before this runs crashes with
+        // UnsatisfiedLinkError. Loaded once, lazily, so pages never pay this cost unless panel
+        // detection actually runs.
+        private val nativeLibraryLoaded: Boolean by lazy { OpenCVLoader.initLocal() }
+    }
+
     override suspend fun detect(bitmap: Bitmap): DetectionResult {
+        if (!nativeLibraryLoaded) return DetectionResult.Inconclusive("OpenCV native library failed to load")
+
         val rgba = Mat()
         Utils.bitmapToMat(bitmap, rgba)
         val width = rgba.cols()
