@@ -2,6 +2,9 @@ package mihon.core.panels
 
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
+import mihon.core.panels.chika.Panel
+import mihon.core.panels.chika.PanelOrdering
+import mihon.core.panels.chika.PanelPlanner
 import org.junit.jupiter.api.Test
 
 class ChikaPanelPlannerTest {
@@ -30,28 +33,34 @@ class ChikaPanelPlannerTest {
         (centers[2].first < centers[3].first) shouldBe true // bottom-left before bottom-right
     }
 
+    // The next two behaviors — reading-order sort and small-panel merging — belong to
+    // PanelOrdering/PanelPlanner themselves and are tested against those directly. Going through
+    // the full ChikaPanelPlanner (gap-filling + margin-padding + the reliability gate) needs boxes
+    // that plausibly tile a whole real page; a couple of hand-picked boxes leave the rest of the
+    // page "uncovered", which PanelGapFiller fills with large synthetic regions and the padding
+    // step then pushes into overlap — correctly making PanelReliability reject the page (see
+    // "heavily overlapping garbage boxes" below), but for the wrong reason for what these two
+    // tests want to isolate.
+
     @Test
     fun `right-to-left flips column order within each row`() {
-        val boxes = listOf(
-            box(0.05f, 0.05f, 0.45f, 0.45f, PanelKind.PANEL), // left column
-            box(0.55f, 0.05f, 0.95f, 0.45f, PanelKind.PANEL), // right column
-        )
+        val left = Panel(0.05f, 0.05f, 0.45f, 0.45f)
+        val right = Panel(0.55f, 0.05f, 0.95f, 0.45f)
 
-        val planned = planner.plan(boxes, pageWidth = 1000, pageHeight = 1000, ReadingDirection.RIGHT_TO_LEFT)
+        val ordered = PanelOrdering.order(listOf(left, right), rightToLeft = true)
 
-        planned shouldHaveSize 2
-        (planned[0].rect.centerX > planned[1].rect.centerX) shouldBe true
+        ordered shouldBe listOf(right, left)
     }
 
     @Test
     fun `merges a run of small adjacent panels`() {
         // Each well under chika's 0.10 small-area threshold and touching, so they merge into one.
         val boxes = listOf(
-            box(0.05f, 0.05f, 0.20f, 0.15f, PanelKind.PANEL),
-            box(0.205f, 0.05f, 0.35f, 0.15f, PanelKind.PANEL),
+            Panel(0.05f, 0.05f, 0.20f, 0.15f),
+            Panel(0.205f, 0.05f, 0.35f, 0.15f),
         )
 
-        val planned = planner.plan(boxes, pageWidth = 1000, pageHeight = 1000, ReadingDirection.LEFT_TO_RIGHT)
+        val planned = PanelPlanner.plan(boxes, bubbles = emptyList(), pageW = 1000, pageH = 1000, rightToLeft = false)
 
         planned shouldHaveSize 1
     }
