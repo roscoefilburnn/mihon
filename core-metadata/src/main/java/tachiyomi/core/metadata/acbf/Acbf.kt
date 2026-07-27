@@ -1,6 +1,5 @@
 package tachiyomi.core.metadata.acbf
 
-import android.graphics.RectF
 import kotlinx.serialization.Serializable
 import nl.adaptivity.xmlutil.serialization.XmlElement
 import nl.adaptivity.xmlutil.serialization.XmlSerialName
@@ -56,7 +55,7 @@ data class AcbfDocument(
      * [points] is the ACBF-native format: a space-delimited list of "x,y" pixel pairs, in the
      * background image's own pixel coordinate space, e.g. `"10,75 650,137 650,562 10,562"`.
      * Real, human-authored ACBF can encode arbitrary polygons (diagonal panel cuts are common in
-     * manga); frames this app generates itself are always axis-aligned quads. [rectF] takes the
+     * manga); frames this app generates itself are always axis-aligned quads. [bounds] takes the
      * bounding box of whatever polygon is present, which is all the reader's zoom/pan needs but
      * is a deliberate simplification for non-rectangular, human-authored frames.
      */
@@ -71,10 +70,19 @@ data class AcbfDocument(
 }
 
 /**
+ * A pure-Kotlin bounding box — deliberately not `android.graphics.RectF`. This module's data
+ * model needs to stay plain-JUnit-testable, and Android framework classes like `RectF` don't
+ * behave correctly when constructed outside a real Android runtime (their real implementation
+ * isn't available under `testDebugUnitTest`'s stub classpath). Callers running on-device convert
+ * this to `RectF` at the boundary.
+ */
+data class AcbfRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/**
  * Parses [AcbfDocument.Frame.points] into its bounding box. Returns null if [points] doesn't
  * contain at least one well-formed "x,y" pair.
  */
-fun AcbfDocument.Frame.rectF(): RectF? {
+fun AcbfDocument.Frame.bounds(): AcbfRect? {
     val xs = ArrayList<Float>()
     val ys = ArrayList<Float>()
     for (pair in points.trim().split(Regex("\\s+"))) {
@@ -87,11 +95,11 @@ fun AcbfDocument.Frame.rectF(): RectF? {
         ys.add(y)
     }
     if (xs.isEmpty()) return null
-    return RectF(xs.min(), ys.min(), xs.max(), ys.max())
+    return AcbfRect(xs.min(), ys.min(), xs.max(), ys.max())
 }
 
 /** Builds the ACBF-native `points` string for an axis-aligned rectangle, corners in order. */
-fun RectF.toAcbfPoints(): String {
+fun AcbfRect.toAcbfPoints(): String {
     return "${left.toInt()},${top.toInt()} ${right.toInt()},${top.toInt()} " +
         "${right.toInt()},${bottom.toInt()} ${left.toInt()},${bottom.toInt()}"
 }

@@ -122,6 +122,6 @@ class ChapterLoader(
             // override — only affects panel reading *order* within a row, not detection.
             ReadingDirection.LEFT_TO_RIGHT
         }
-        return PanelResolutionContext(manga.id, chapter.chapter.id, archiveFile, readingDirection)
+        return PanelResolutionContext(manga.id, chapter.chapter.id!!, archiveFile, readingDirection)
     }
 }

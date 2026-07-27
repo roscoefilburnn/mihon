@@ -60,7 +60,7 @@ class AcbfTest {
     fun `parses real embedded frame points with a bounding box`() {
         val frame = AcbfDocument.Frame(points = "10,75 650,137 650,562 10,562")
 
-        val rect = frame.rectF()!!
+        val rect = frame.bounds()!!
 
         rect.left shouldBe 10f
         rect.top shouldBe 75f
@@ -69,8 +69,8 @@ class AcbfTest {
     }
 
     @Test
-    fun `rectF returns null for malformed points`() {
-        AcbfDocument.Frame(points = "").rectF() shouldBe null
-        AcbfDocument.Frame(points = "not-a-point").rectF() shouldBe null
+    fun `bounds returns null for malformed points`() {
+        AcbfDocument.Frame(points = "").bounds() shouldBe null
+        AcbfDocument.Frame(points = "not-a-point").bounds() shouldBe null
     }
 }

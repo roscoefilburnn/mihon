@@ -16,9 +16,9 @@
 package mihon.core.panels.acbfeditor
 
 import android.graphics.Bitmap
-import android.graphics.RectF
 import mihon.core.panels.DetectedBox
 import mihon.core.panels.DetectionResult
+import mihon.core.panels.PanelBox
 import mihon.core.panels.PanelDetector
 import mihon.core.panels.PanelKind
 import org.opencv.android.Utils
@@ -131,7 +131,7 @@ class AcbfEditorFrameDetector(
             val right = candidate.points.maxOf { it.x }.coerceIn(0.0, width.toDouble())
             val bottom = candidate.points.maxOf { it.y }.coerceIn(0.0, height.toDouble())
             DetectedBox(
-                rect = RectF(
+                rect = PanelBox(
                     (left / width).toFloat(),
                     (top / height).toFloat(),
                     (right / width).toFloat(),

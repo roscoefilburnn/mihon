@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.RectF
 import android.view.LayoutInflater
 import androidx.core.view.isVisible
 import eu.kanade.presentation.util.formattedMessage
@@ -93,7 +94,7 @@ class PagerPageHolder(
         val panels = page.panels ?: return
         currentPanelIndex = if (forward) currentPanelIndex + 1 else currentPanelIndex - 1
         val panel = panels.getOrNull(currentPanelIndex) ?: return
-        zoomToPanel(panel.rect)
+        zoomToPanel(RectF(panel.rect.left, panel.rect.top, panel.rect.right, panel.rect.bottom))
     }
 
     /**

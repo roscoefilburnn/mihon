@@ -80,7 +80,7 @@ class TfliteChikaDetector(private val context: Context) : PanelDetector, Closeab
     }
 
     private fun rectOf(panel: mihon.core.panels.chika.Panel) =
-        android.graphics.RectF(panel.left, panel.top, panel.right, panel.bottom)
+        PanelBox(panel.left, panel.top, panel.right, panel.bottom)
 
     private fun loadInterpreter(): Interpreter? {
         return try {

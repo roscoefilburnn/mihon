@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.reader.loader
 import android.app.Application
 import android.graphics.BitmapFactory
 import com.hippo.unifile.UniFile
+import eu.kanade.tachiyomi.data.cache.AcbfCache
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
@@ -10,6 +11,7 @@ import mihon.core.archive.ArchiveEntry
 import mihon.core.archive.ArchiveReader
 import mihon.core.panels.ChikaPanelPlanner
 import mihon.core.panels.DetectionResult
+import mihon.core.panels.PanelBox
 import mihon.core.panels.PanelDetector
 import mihon.core.panels.PanelPlanner
 import mihon.core.panels.PanelRect
@@ -21,7 +23,8 @@ import nl.adaptivity.xmlutil.serialization.XML
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.core.metadata.acbf.ACBF_FILE_EXTENSION
 import tachiyomi.core.metadata.acbf.AcbfDocument
-import tachiyomi.core.metadata.acbf.rectF
+import tachiyomi.core.metadata.acbf.AcbfRect
+import tachiyomi.core.metadata.acbf.bounds
 import tachiyomi.core.metadata.acbf.toAcbfPoints
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -96,7 +99,7 @@ class AcbfPanelResolver(
             pages.add(
                 AcbfDocument.Page(
                     image = AcbfDocument.Image(href = entry.name),
-                    frame = panels.map { AcbfDocument.Frame(points = it.rect.toAcbfPoints()) },
+                    frame = panels.map { AcbfDocument.Frame(points = it.rect.toAcbfRect().toAcbfPoints()) },
                 ),
             )
         }
@@ -154,7 +157,11 @@ class AcbfPanelResolver(
 
     private fun AcbfDocument.toPanelsByEntry(): Map<String, List<PanelRect>> {
         return body.page.associate { page ->
-            page.image.href to page.frame.mapNotNull { it.rectF() }.map { PanelRect(it) }
+            page.image.href to page.frame.mapNotNull { it.bounds() }.map { PanelRect(it.toPanelBox()) }
         }
     }
+
+    private fun PanelBox.toAcbfRect() = AcbfRect(left, top, right, bottom)
+
+    private fun AcbfRect.toPanelBox() = PanelBox(left, top, right, bottom)
 }

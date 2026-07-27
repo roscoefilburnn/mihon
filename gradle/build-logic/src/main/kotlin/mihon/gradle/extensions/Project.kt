@@ -6,6 +6,7 @@ import org.gradle.accessors.dm.LibrariesForMihonx
 import org.gradle.api.Project
 import org.gradle.api.plugins.PluginManager
 import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.the
@@ -27,6 +28,9 @@ fun Project.configureTest() {
         useJUnitPlatform()
         testLogging {
             events(TestLogEvent.PASSED, TestLogEvent.SKIPPED, TestLogEvent.FAILED)
+            exceptionFormat = TestExceptionFormat.FULL
+            showStackTraces = true
+            showCauses = true
         }
     }
 }

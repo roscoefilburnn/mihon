@@ -1,6 +1,5 @@
 package mihon.core.panels
 
-import android.graphics.RectF
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldHaveSize
 import org.junit.jupiter.api.Test
@@ -25,7 +24,7 @@ class ChikaPanelPlannerTest {
 
         planned shouldHaveSize 4
         // reading order: top-left, top-right, bottom-left, bottom-right
-        val centers = planned.map { it.rect.centerX() to it.rect.centerY() }
+        val centers = planned.map { it.rect.centerX to it.rect.centerY }
         (centers[0].first < centers[1].first) shouldBe true // top-left before top-right
         (centers[0].second < centers[2].second) shouldBe true // top row before bottom row
         (centers[2].first < centers[3].first) shouldBe true // bottom-left before bottom-right
@@ -41,7 +40,7 @@ class ChikaPanelPlannerTest {
         val planned = planner.plan(boxes, pageWidth = 1000, pageHeight = 1000, ReadingDirection.RIGHT_TO_LEFT)
 
         planned shouldHaveSize 2
-        (planned[0].rect.centerX() > planned[1].rect.centerX()) shouldBe true
+        (planned[0].rect.centerX > planned[1].rect.centerX) shouldBe true
     }
 
     @Test
@@ -93,5 +92,5 @@ class ChikaPanelPlannerTest {
         right: Float,
         bottom: Float,
         kind: PanelKind,
-    ) = DetectedBox(rect = RectF(left, top, right, bottom), kind = kind, confidence = 1f)
+    ) = DetectedBox(rect = PanelBox(left, top, right, bottom), kind = kind, confidence = 1f)
 }

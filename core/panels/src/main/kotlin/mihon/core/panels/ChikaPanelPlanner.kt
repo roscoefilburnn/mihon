@@ -1,6 +1,5 @@
 package mihon.core.panels
 
-import android.graphics.RectF
 import mihon.core.panels.chika.Panel
 import mihon.core.panels.chika.PanelPipeline
 import mihon.core.panels.chika.PanelReliability
@@ -35,7 +34,7 @@ class ChikaPanelPlanner : PanelPlanner {
 
         return zoomRegions.map { panel ->
             PanelRect(
-                rect = RectF(
+                rect = PanelBox(
                     panel.left * pageWidth,
                     panel.top * pageHeight,
                     panel.right * pageWidth,
@@ -45,5 +44,5 @@ class ChikaPanelPlanner : PanelPlanner {
         }
     }
 
-    private fun RectF.toChikaPanel(): Panel = Panel(left, top, right, bottom)
+    private fun PanelBox.toChikaPanel(): Panel = Panel(left, top, right, bottom)
 }

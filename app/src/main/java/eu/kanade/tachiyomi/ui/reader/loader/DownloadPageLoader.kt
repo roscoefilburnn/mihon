@@ -64,7 +64,7 @@ internal class DownloadPageLoader(
             // override — only affects panel reading *order* within a row, not detection.
             ReadingDirection.LEFT_TO_RIGHT
         }
-        val panelContext = PanelResolutionContext(manga.id, chapter.chapter.id, file, readingDirection)
+        val panelContext = PanelResolutionContext(manga.id, chapter.chapter.id!!, file, readingDirection)
         val loader = ArchivePageLoader(file.archiveReader(context), panelContext).also { archivePageLoader = it }
         return loader.getPages()
     }

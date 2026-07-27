@@ -1,7 +1,5 @@
 package mihon.core.panels
 
-import android.graphics.RectF
-
 /**
  * A raw detection from a [PanelDetector], before merge/split/reading-order planning.
  *
@@ -9,7 +7,7 @@ import android.graphics.RectF
  * resolution the detector happened to run inference at.
  */
 data class DetectedBox(
-    val rect: RectF,
+    val rect: PanelBox,
     val kind: PanelKind,
     val confidence: Float,
 )
