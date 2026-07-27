@@ -618,8 +618,9 @@ class Downloader(
 
     /**
      * Archive the chapter pages as a CBZ.
+     *
+     * Returns the finished `.cbz`, or null if it couldn't be resolved after the rename.
      */
-    /** Returns the finished `.cbz`, or null if it couldn't be resolved after the rename. */
     private fun archiveChapter(
         mangaDir: UniFile,
         dirname: String,
