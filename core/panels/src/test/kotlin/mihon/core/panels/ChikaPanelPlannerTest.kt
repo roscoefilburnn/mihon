@@ -1,7 +1,7 @@
 package mihon.core.panels
 
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldHaveSize
 import org.junit.jupiter.api.Test
 
 class ChikaPanelPlannerTest {
