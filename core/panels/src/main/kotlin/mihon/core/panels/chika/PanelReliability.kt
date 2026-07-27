@@ -25,6 +25,7 @@ object PanelReliability {
      *  Dandadan: clean bordered pages score ≈0.000, confused borderless pages score ≥0.058, so 0.04
      *  separates them with margin (and biases toward whole-page fallback, the safe failure mode). */
     private const val MAX_OVERLAP_RATIO = 0.04f
+
     /** A single box covering more than this fraction of the page (with others present) is noise. */
     private const val DOMINATING_PANEL = 0.92f
 

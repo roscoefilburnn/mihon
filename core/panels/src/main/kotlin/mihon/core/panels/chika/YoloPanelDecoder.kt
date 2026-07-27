@@ -80,7 +80,10 @@ class YoloPanelDecoder(
         var p = 0
         while (p < preds && sampled < 64) {
             val v = maxOf(at(p, 0), at(p, 1), at(p, 2), at(p, 3))
-            if (v.isFinite()) { maxCoord = maxOf(maxCoord, v); sampled++ }
+            if (v.isFinite()) {
+                maxCoord = maxOf(maxCoord, v)
+                sampled++
+            }
             p++
         }
         val coordScale = if (maxCoord <= 1.5f) inputSize.toFloat() else 1f
@@ -95,8 +98,15 @@ class YoloPanelDecoder(
                 score = at(i, 4)
                 cls = at(i, 5).toInt()
             } else {
-                val cls0 = at(i, 4); val cls1 = at(i, 5)
-                if (cls0 >= cls1) { cls = PANEL_CLASS; score = cls0 } else { cls = TEXT_CLASS; score = cls1 }
+                val cls0 = at(i, 4)
+                val cls1 = at(i, 5)
+                if (cls0 >= cls1) {
+                    cls = PANEL_CLASS
+                    score = cls0
+                } else {
+                    cls = TEXT_CLASS
+                    score = cls1
+                }
             }
             if (score < confidenceThreshold || (cls != PANEL_CLASS && cls != TEXT_CLASS)) continue
 
@@ -104,9 +114,22 @@ class YoloPanelDecoder(
             val b = at(i, 1) * coordScale
             val c = at(i, 2) * coordScale
             val d = at(i, 3) * coordScale
-            val x1: Float; val y1: Float; val x2: Float; val y2: Float
-            if (endToEnd) { x1 = a; y1 = b; x2 = c; y2 = d } // xyxy
-            else { x1 = a - c / 2f; y1 = b - d / 2f; x2 = a + c / 2f; y2 = b + d / 2f } // cxcywh
+            val x1: Float
+            val y1: Float
+            val x2: Float
+            val y2: Float
+            if (endToEnd) {
+                x1 = a
+                y1 = b
+                x2 = c
+                y2 = d
+            } // xyxy
+            else {
+                x1 = a - c / 2f
+                y1 = b - d / 2f
+                x2 = a + c / 2f
+                y2 = b + d / 2f
+            } // cxcywh
             val box = floatArrayOf(x1, y1, x2, y2, score)
             if (cls == PANEL_CLASS) panelBoxes.add(box) else bubbleBoxes.add(box)
         }

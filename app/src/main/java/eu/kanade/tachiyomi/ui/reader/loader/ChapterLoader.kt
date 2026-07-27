@@ -113,7 +113,9 @@ class ChapterLoader(
     }
 
     private fun panelResolutionContext(chapter: ReaderChapter, archiveFile: UniFile): PanelResolutionContext {
-        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) == ReadingMode.RIGHT_TO_LEFT.flagValue) {
+        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) ==
+            ReadingMode.RIGHT_TO_LEFT.flagValue
+        ) {
             ReadingDirection.RIGHT_TO_LEFT
         } else {
             // Doesn't account for a global RTL default when the manga has no per-manga

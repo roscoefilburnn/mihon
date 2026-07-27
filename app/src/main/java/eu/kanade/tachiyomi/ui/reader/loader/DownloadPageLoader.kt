@@ -55,7 +55,9 @@ internal class DownloadPageLoader(
     }
 
     private suspend fun getPagesFromArchive(file: UniFile): List<ReaderPage> {
-        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) == ReadingMode.RIGHT_TO_LEFT.flagValue) {
+        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) ==
+            ReadingMode.RIGHT_TO_LEFT.flagValue
+        ) {
             ReadingDirection.RIGHT_TO_LEFT
         } else {
             // Doesn't account for a global RTL default when the manga has no per-manga

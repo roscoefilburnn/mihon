@@ -47,8 +47,11 @@ object PanelOrdering {
 
         // Otherwise a vertical cut → columns, read by direction (right group first for manga).
         findCut(panels, vertical = true)?.let { (left, right) ->
-            return if (rightToLeft) cut(right, rightToLeft) + cut(left, rightToLeft)
-            else cut(left, rightToLeft) + cut(right, rightToLeft)
+            return if (rightToLeft) {
+                cut(right, rightToLeft) + cut(left, rightToLeft)
+            } else {
+                cut(left, rightToLeft) + cut(right, rightToLeft)
+            }
         }
 
         // No clean cut (a big panel overlaps everything, so neither axis splits). Best effort: cluster
@@ -80,18 +83,22 @@ object PanelOrdering {
         val candidates = panels.map(end).distinct().sorted()
         for (line in candidates) {
             if (line >= maxEnd) continue // wouldn't leave anything below/right
-            val first = mutableListOf<Panel>()  // top (or left) side
+            val first = mutableListOf<Panel>() // top (or left) side
             val second = mutableListOf<Panel>() // bottom (or right) side
             var valid = true
             for (p in panels) {
-                val s = start(p); val e = end(p)
+                val s = start(p)
+                val e = end(p)
                 when {
                     e <= line -> first.add(p)
                     s >= line -> second.add(p)
                     else -> {
                         val len = (e - s).coerceAtLeast(1e-4f)
                         val crossDepth = minOf(e - line, line - s) // how far it pokes onto the thinner side
-                        if (crossDepth / len > STRADDLE_TOLERANCE) { valid = false; break }
+                        if (crossDepth / len > STRADDLE_TOLERANCE) {
+                            valid = false
+                            break
+                        }
                         if (line - s >= e - line) first.add(p) else second.add(p) // majority side
                     }
                 }

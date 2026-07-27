@@ -165,7 +165,10 @@ class AcbfEditorFrameDetector(
         Imgproc.Canny(source, edges, cannyLow, cannyHigh)
 
         val kernelSize = max(1, border / 2)
-        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(kernelSize.toDouble(), kernelSize.toDouble()))
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(kernelSize.toDouble(), kernelSize.toDouble()),
+        )
         val closed = Mat()
         Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
         edges.release()

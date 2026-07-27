@@ -127,11 +127,17 @@ object PanelPlanner {
                 val next = ordered[j + 1]
                 val stepDir = adjacencyDir(ordered[j], next, config)
                 if (stepDir == Dir.NONE) break
-                if (dir == Dir.NONE) dir = stepDir else if (stepDir != dir) break
+                if (dir == Dir.NONE) {
+                    dir = stepDir
+                } else if (stepDir != dir) {
+                    break
+                }
                 val candidate = union(union, next)
                 if (candidate.width > config.maxMergedWidthFraction ||
                     candidate.height > config.maxMergedHeightFraction
-                ) break
+                ) {
+                    break
+                }
                 union = candidate
                 j++
                 count++
