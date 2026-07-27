@@ -16,6 +16,7 @@
 package mihon.core.panels.acbfeditor
 
 import android.graphics.Bitmap
+import kotlinx.coroutines.ensureActive
 import mihon.core.panels.DetectedBox
 import mihon.core.panels.DetectionResult
 import mihon.core.panels.PanelBox
@@ -29,9 +30,11 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -164,7 +167,7 @@ class AcbfEditorFrameDetector(
      * by [border] px (matching the original's "enlarge rectangle" step); the second pass reuses
      * this same contour-filtering core without that offset/enlargement (see [findMissedFrames]).
      */
-    private fun findFrameCandidates(
+    private suspend fun findFrameCandidates(
         source: Mat,
         width: Int,
         height: Int,
@@ -183,6 +186,7 @@ class AcbfEditorFrameDetector(
         val closed = Mat()
         Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel)
         edges.release()
+        kernel.release()
 
         val contours = ArrayList<MatOfPoint>()
         val hierarchy = Mat()
@@ -193,45 +197,54 @@ class AcbfEditorFrameDetector(
         val pageArea = (width * height).toDouble()
         val results = ArrayList<Candidate>()
 
-        for (contour in contours) {
-            val area = Imgproc.contourArea(contour)
-            if (area <= pageArea * minAreaFraction || area >= pageArea * maxAreaFraction) continue
+        // Every Mat here holds native memory that the JVM's GC doesn't account for, so each one is
+        // released explicitly — a page can yield dozens of contours, and this runs for every page of
+        // a chapter in one pass.
+        try {
+            for (contour in contours) {
+                coroutineContext.ensureActive()
 
-            val contour2f = MatOfPoint2f(*contour.toArray())
-            val arcLen = Imgproc.arcLength(contour2f, true)
-            val approx2f = MatOfPoint2f()
-            Imgproc.approxPolyDP(contour2f, approx2f, approxEpsilonFraction * arcLen, true)
-            val approxPoints = approx2f.toArray()
-            contour2f.release()
-            approx2f.release()
+                val area = Imgproc.contourArea(contour)
+                if (area <= pageArea * minAreaFraction || area >= pageArea * maxAreaFraction) continue
 
-            val vertexCount = approxPoints.size
-            val plausibleShape = if (applyBorderOffset) vertexCount in 3..6 else vertexCount > 3
-            if (!plausibleShape) continue
+                val contour2f = MatOfPoint2f(*contour.toArray())
+                val arcLen = Imgproc.arcLength(contour2f, true)
+                val approx2f = MatOfPoint2f()
+                Imgproc.approxPolyDP(contour2f, approx2f, approxEpsilonFraction * arcLen, true)
+                val approxPoints = approx2f.toArray()
+                contour2f.release()
+                approx2f.release()
 
-            mask?.let { Imgproc.drawContours(it, listOf(contour), 0, Scalar(255.0), -1) }
+                val vertexCount = approxPoints.size
+                val plausibleShape = if (applyBorderOffset) vertexCount in 3..6 else vertexCount > 3
+                if (!plausibleShape) continue
 
-            val points = if (applyBorderOffset) {
-                val moments = Imgproc.moments(contour)
-                val cx = moments.m10 / moments.m00
-                val cy = moments.m01 / moments.m00
-                approxPoints.map { p ->
-                    var x = p.x - imageBorder
-                    var y = p.y - imageBorder
-                    x += if (x > cx) border.toDouble() else -border.toDouble()
-                    y += if (y > cy) border.toDouble() else -border.toDouble()
-                    Point(x.coerceIn(0.0, width.toDouble()), y.coerceIn(0.0, height.toDouble()))
+                mask?.let { Imgproc.drawContours(it, listOf(contour), 0, Scalar(255.0), -1) }
+
+                val points = if (applyBorderOffset) {
+                    val moments = Imgproc.moments(contour)
+                    val cx = moments.m10 / moments.m00
+                    val cy = moments.m01 / moments.m00
+                    approxPoints.map { p ->
+                        var x = p.x - imageBorder
+                        var y = p.y - imageBorder
+                        x += if (x > cx) border.toDouble() else -border.toDouble()
+                        y += if (y > cy) border.toDouble() else -border.toDouble()
+                        Point(x.coerceIn(0.0, width.toDouble()), y.coerceIn(0.0, height.toDouble()))
+                    }
+                } else {
+                    approxPoints.toList()
                 }
-            } else {
-                approxPoints.toList()
-            }
 
-            results += Candidate(
-                points = points,
-                area = area,
-                minX = points.minOf { it.x },
-                minY = points.minOf { it.y },
-            )
+                results += Candidate(
+                    points = points,
+                    area = area,
+                    minX = points.minOf { it.x },
+                    minY = points.minOf { it.y },
+                )
+            }
+        } finally {
+            contours.forEach { it.release() }
         }
         return results
     }
@@ -242,7 +255,7 @@ class AcbfEditorFrameDetector(
      * don't read as gaps, invert, erode to drop noise, then re-detect contours in what's left —
      * regions the first pass missed.
      */
-    private fun findMissedFrames(
+    private suspend fun findMissedFrames(
         mask: Mat,
         width: Int,
         height: Int,
@@ -253,12 +266,20 @@ class AcbfEditorFrameDetector(
         maxY: Double,
     ): List<Candidate> {
         val working = mask.clone()
-        for (row in 0 until height) {
-            if (row <= minY || row >= maxY) working.row(row).setTo(Scalar(255.0))
-        }
-        for (col in 0 until width) {
-            if (col <= minX || col >= maxX) working.col(col).setTo(Scalar(255.0))
-        }
+
+        // Fills the margin outside the detected bounds as four rectangles. The original walks every
+        // row and column individually; each `Mat.row()`/`Mat.col()` allocates a native Mat header,
+        // so on a full-size page that was several thousand unreleased native objects per page for a
+        // result four filled rects produce identically.
+        val white = Scalar(255.0)
+        val loX = minX.toInt().coerceIn(0, width)
+        val hiX = maxX.toInt().coerceIn(0, width)
+        val loY = minY.toInt().coerceIn(0, height)
+        val hiY = maxY.toInt().coerceIn(0, height)
+        Imgproc.rectangle(working, Rect(0, 0, width, (loY + 1).coerceAtMost(height)), white, -1)
+        if (hiY < height) Imgproc.rectangle(working, Rect(0, hiY, width, height - hiY), white, -1)
+        Imgproc.rectangle(working, Rect(0, 0, (loX + 1).coerceAtMost(width), height), white, -1)
+        if (hiX < width) Imgproc.rectangle(working, Rect(hiX, 0, width - hiX, height), white, -1)
 
         val closeKernelSize = max(1, border * 4)
         val closeKernel = Imgproc.getStructuringElement(
@@ -266,6 +287,7 @@ class AcbfEditorFrameDetector(
             Size(closeKernelSize.toDouble(), closeKernelSize.toDouble()),
         )
         Imgproc.morphologyEx(working, working, Imgproc.MORPH_CLOSE, closeKernel)
+        closeKernel.release()
 
         Core.bitwise_not(working, working)
 
@@ -275,6 +297,7 @@ class AcbfEditorFrameDetector(
             Size(erodeKernelSize.toDouble(), erodeKernelSize.toDouble()),
         )
         Imgproc.erode(working, working, erodeKernel)
+        erodeKernel.release()
 
         val edges = Mat()
         Imgproc.Canny(working, edges, cannyLow, cannyHigh)
@@ -288,6 +311,7 @@ class AcbfEditorFrameDetector(
         val closedEdges = Mat()
         Imgproc.morphologyEx(edges, closedEdges, Imgproc.MORPH_CLOSE, smallKernel)
         edges.release()
+        smallKernel.release()
 
         val missed = findFrameCandidates(closedEdges, width, height, border, mask = null, applyBorderOffset = false)
         closedEdges.release()

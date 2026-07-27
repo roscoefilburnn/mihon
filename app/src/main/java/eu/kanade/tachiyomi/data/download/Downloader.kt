@@ -11,6 +11,8 @@ import eu.kanade.tachiyomi.data.notification.NotificationHandler
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.ui.reader.loader.AcbfPanelResolver
+import eu.kanade.tachiyomi.ui.reader.loader.panelReadingDirection
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.NOMEDIA_FILE
 import eu.kanade.tachiyomi.util.storage.saveTo
@@ -77,6 +79,7 @@ class Downloader(
     private val xml: XML = Injekt.get(),
     private val getCategories: GetCategories = Injekt.get(),
     private val getTracks: GetTracks = Injekt.get(),
+    private val acbfPanelResolver: AcbfPanelResolver = Injekt.get(),
 ) {
 
     /**
@@ -406,14 +409,34 @@ class Downloader(
             )
 
             // Only rename the directory if it's downloaded
-            if (downloadPreferences.saveChaptersAsCBZ.get()) {
+            val archiveFile = if (downloadPreferences.saveChaptersAsCBZ.get()) {
                 archiveChapter(mangaDir, chapterDirname, tmpDir)
             } else {
                 tmpDir.renameTo(chapterDirname)
+                null
             }
             cache.addChapter(chapterDirname, mangaDir, download.manga)
 
             DiskUtil.createNoMediaFile(tmpDir, context)
+
+            // Encode panels now rather than on first open, so opening the chapter doesn't stall on
+            // a full pass of on-device detection. Only CBZ downloads are covered: a chapter saved
+            // as a plain directory is read by DownloadPageLoader's directory path, which has no
+            // archive to key an ACBF document against. A failure here must not fail the download —
+            // the reader falls back to encoding on demand.
+            if (archiveFile != null) {
+                try {
+                    acbfPanelResolver.encodeAfterDownload(
+                        mangaId = download.manga.id,
+                        chapterId = download.chapter.id,
+                        archiveFile = archiveFile,
+                        readingDirection = download.manga.panelReadingDirection(),
+                    )
+                } catch (e: Throwable) {
+                    if (e is CancellationException) throw e
+                    logcat(LogPriority.WARN, e) { "Panel encoding failed for ${download.chapter.name}" }
+                }
+            }
 
             download.status = Download.State.DOWNLOADED
         } catch (error: Throwable) {
@@ -596,11 +619,12 @@ class Downloader(
     /**
      * Archive the chapter pages as a CBZ.
      */
+    /** Returns the finished `.cbz`, or null if it couldn't be resolved after the rename. */
     private fun archiveChapter(
         mangaDir: UniFile,
         dirname: String,
         tmpDir: UniFile,
-    ) {
+    ): UniFile? {
         val zip = mangaDir.createFile("$dirname.cbz$TMP_DIR_SUFFIX")!!
         ZipWriter(context, zip).use { writer ->
             tmpDir.listFiles()?.forEach { file ->
@@ -609,6 +633,9 @@ class Downloader(
         }
         zip.renameTo("$dirname.cbz")
         tmpDir.delete()
+        // Looked up fresh rather than reusing `zip`, whose UniFile still points at the pre-rename
+        // name on some storage backends.
+        return mangaDir.findFile("$dirname.cbz")
     }
 
     /**

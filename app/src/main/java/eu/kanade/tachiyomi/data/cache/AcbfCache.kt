@@ -72,7 +72,12 @@ class AcbfCache(context: Context) {
         }
     }
 
-    private fun keyFor(mangaId: Long, chapterId: Long, archiveFile: UniFile): String {
+    /**
+     * The cache key for a chapter archive. Public because [AcbfPanelResolver] keys its in-flight
+     * encode jobs on the same value, so a download-time encode and a reader-time resolve of the
+     * same archive coalesce onto one job instead of racing each other.
+     */
+    fun keyFor(mangaId: Long, chapterId: Long, archiveFile: UniFile): String {
         val signature = "${archiveFile.length()}_${archiveFile.lastModified()}"
         return DiskUtil.hashKeyForDisk("${mangaId}_${chapterId}_$signature")
     }

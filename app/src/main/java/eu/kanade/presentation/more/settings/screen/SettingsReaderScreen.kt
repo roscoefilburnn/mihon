@@ -190,9 +190,9 @@ object SettingsReaderScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_always_show_chapter_transition),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
-                    preference = readerPreferences.panelDetectionEnabled,
-                    title = stringResource(MR.strings.pref_panel_detection_enabled),
-                    subtitle = stringResource(MR.strings.pref_panel_detection_enabled_summary),
+                    preference = readerPreferences.guidedPanel,
+                    title = stringResource(MR.strings.pref_guided_panel),
+                    subtitle = stringResource(MR.strings.pref_guided_panel_summary),
                 ),
             ),
         )
@@ -209,7 +209,6 @@ object SettingsReaderScreen : SearchableSettings {
         val imageScaleType by imageScaleTypePref.collectAsState()
         val dualPageSplit by dualPageSplitPref.collectAsState()
         val rotateToFit by rotateToFitPref.collectAsState()
-        val panelDetectionEnabled by readerPreferences.panelDetectionEnabled.collectAsState()
 
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.pager_viewer),
@@ -264,12 +263,6 @@ object SettingsReaderScreen : SearchableSettings {
                     preference = readerPreferences.navigateToPan,
                     title = stringResource(MR.strings.pref_navigate_pan),
                     enabled = navMode != 5,
-                ),
-                Preference.PreferenceItem.SwitchPreference(
-                    preference = readerPreferences.panelNavigation,
-                    title = stringResource(MR.strings.pref_panel_navigation),
-                    subtitle = stringResource(MR.strings.pref_panel_navigation_summary),
-                    enabled = navMode != 5 && panelDetectionEnabled,
                 ),
                 Preference.PreferenceItem.SwitchPreference(
                     preference = dualPageSplitPref,

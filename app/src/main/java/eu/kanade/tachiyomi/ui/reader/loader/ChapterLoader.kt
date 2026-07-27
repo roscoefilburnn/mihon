@@ -7,10 +7,8 @@ import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
-import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import mihon.core.archive.archiveReader
 import mihon.core.archive.epubReader
-import mihon.core.panels.ReadingDirection
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
@@ -113,15 +111,11 @@ class ChapterLoader(
     }
 
     private fun panelResolutionContext(chapter: ReaderChapter, archiveFile: UniFile): PanelResolutionContext {
-        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) ==
-            ReadingMode.RIGHT_TO_LEFT.flagValue
-        ) {
-            ReadingDirection.RIGHT_TO_LEFT
-        } else {
-            // Doesn't account for a global RTL default when the manga has no per-manga
-            // override — only affects panel reading *order* within a row, not detection.
-            ReadingDirection.LEFT_TO_RIGHT
-        }
-        return PanelResolutionContext(manga.id, chapter.chapter.id!!, archiveFile, readingDirection)
+        return PanelResolutionContext(
+            manga.id,
+            chapter.chapter.id!!,
+            archiveFile,
+            manga.panelReadingDirection(),
+        )
     }
 }
