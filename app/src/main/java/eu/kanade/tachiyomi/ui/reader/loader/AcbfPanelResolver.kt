@@ -216,9 +216,22 @@ class AcbfPanelResolver(
         entryName: String,
         readingDirection: ReadingDirection,
     ): List<PanelRect> {
-        val pageSize = readPageSize(reader, entryName) ?: return emptyList()
-        val (pageWidth, pageHeight) = pageSize
-        val bitmap = decodeDownsampled(reader, entryName, pageWidth, pageHeight) ?: return emptyList()
+        // Read the entry once into memory and decode from the bytes rather than handing the archive
+        // stream to BitmapFactory twice. A libarchive stream is forward-only and not rewindable,
+        // which is exactly what BitmapFactory's buffered header peeking assumes it can do.
+        val bytes = reader.getInputStream(entryName)?.use { it.readBytes() } ?: return emptyList()
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val pageWidth = bounds.outWidth
+        val pageHeight = bounds.outHeight
+        if (pageWidth <= 0 || pageHeight <= 0) return emptyList()
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSizeFor(pageWidth, pageHeight)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return emptyList()
 
         try {
             coroutineContext.ensureActive()
@@ -243,34 +256,13 @@ class AcbfPanelResolver(
         }
     }
 
-    /** Reads [entryName]'s pixel dimensions without decoding it. */
-    private fun readPageSize(reader: ArchiveReader, entryName: String): Pair<Int, Int>? {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        reader.getInputStream(entryName)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
-        return if (options.outWidth > 0 && options.outHeight > 0) {
-            options.outWidth to options.outHeight
-        } else {
-            null
-        }
-    }
-
-    /** Decodes [entryName] subsampled so its longest edge is at most [MAX_DETECTION_EDGE_PX]. */
-    private fun decodeDownsampled(
-        reader: ArchiveReader,
-        entryName: String,
-        pageWidth: Int,
-        pageHeight: Int,
-    ): Bitmap? {
-        // BitmapFactory rounds inSampleSize down to a power of two, so step through powers directly.
+    /** Power-of-two subsample keeping the longest edge at or under [MAX_DETECTION_EDGE_PX]. */
+    private fun sampleSizeFor(pageWidth: Int, pageHeight: Int): Int {
         var sampleSize = 1
         while (maxOf(pageWidth, pageHeight) / sampleSize > MAX_DETECTION_EDGE_PX) {
             sampleSize *= 2
         }
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        return reader.getInputStream(entryName)?.use { BitmapFactory.decodeStream(it, null, options) }
+        return sampleSize
     }
 
     private fun findEmbeddedAcbf(reader: ArchiveReader): AcbfDocument? {
