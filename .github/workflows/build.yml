@@ -75,3 +75,16 @@ jobs:
         with:
           name: mapping-${{ github.sha }}
           path: app/build/outputs/mapping/release
+
+      - name: Build installable preview APK
+        # Same build as "release" but signed with the standard Android debug key instead of left
+        # unsigned, since this fork has no release signing key secret configured. Debug-signed APKs
+        # install fine for sideloading; they just can't go on the Play Store or overwrite an install
+        # of the differently-signed official release.
+        run: ./gradlew assemblePreview -Pinclude-telemetry -Penable-updater
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: installable-arm64-v8a-${{ github.sha }}
+          path: app/build/outputs/apk/preview/app-arm64-v8a-preview.apk
