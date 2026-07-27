@@ -133,7 +133,7 @@ class AcbfPanelResolver(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Panels are an enhancement; never let failing to produce them stop a chapter opening.
             logcat(LogPriority.WARN, e) { "Panel encoding failed for chapter $chapterId" }
             emptyMap()
@@ -179,7 +179,12 @@ class AcbfPanelResolver(
                 withTimeoutOrNull(PER_PAGE_DETECTION_TIMEOUT_MS) {
                     detectPanels(reader, entry.name, readingDirection)
                 } ?: emptyList()
-            } catch (e: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Throwable, not Exception: a missing or shrunk-away native symbol surfaces as
+                // UnsatisfiedLinkError/NoClassDefFoundError, and a large page can surface as
+                // OutOfMemoryError. None of those should cost more than this one page's panels.
                 logcat(LogPriority.WARN, e) { "Panel detection failed for ${entry.name}" }
                 emptyList()
             }
