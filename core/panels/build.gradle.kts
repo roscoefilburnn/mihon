@@ -11,7 +11,6 @@ dependencies {
     implementation(projects.coreMetadata)
 
     implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.support)
     implementation(libs.opencv)
 
     testImplementation(libs.bundles.test)
