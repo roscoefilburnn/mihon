@@ -40,10 +40,24 @@ object PanelPipeline {
         val filled = PanelGapFiller.fill(panels)
         val ordered = PanelOrdering.order(filled, rightToLeft)
         val planned = PanelPlanner.plan(ordered, bubbles, pageW, pageH, rightToLeft, config)
-        if (planned.size >= 2) return pad(planned)
+        if (planned.size >= 2) return padIfReliable(planned)
         // The model found nothing usable (or it collapsed to a single region): rather than show the
         // page as one panel, treat the whole page as a panel and let the ratio splitter break it up.
-        return pad(PanelPlanner.plan(listOf(Panel.FULL_PAGE), bubbles, pageW, pageH, rightToLeft, config))
+        return padIfReliable(PanelPlanner.plan(listOf(Panel.FULL_PAGE), bubbles, pageW, pageH, rightToLeft, config))
+    }
+
+    /**
+     * Applies [PanelReliability] to the *unpadded* plan, then pads what survives.
+     *
+     * Order matters: PanelReliability's overlap threshold is calibrated against panels as detected,
+     * where a clean tiling scores ≈0. [PANEL_MARGIN] grows every panel into its neighbours, and
+     * manga gutters run 1-2% of page width — far narrower than the 5.7% padding — so measuring
+     * overlap after padding invents overlap that the layout never had and rejects ordinary pages as
+     * "confused".
+     */
+    private fun padIfReliable(panels: List<Panel>): List<Panel> {
+        if (!PanelReliability.isReliable(panels)) return emptyList()
+        return pad(panels)
     }
 
     /** Grows each panel by [PANEL_MARGIN] of its own size per side, clamped to the page. */

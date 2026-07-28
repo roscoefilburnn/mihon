@@ -206,7 +206,10 @@ class AcbfPanelResolver(
         if (result.values.any { it.isNotEmpty() }) {
             acbfCache.put(mangaId, chapterId, archiveFile, AcbfDocument(AcbfDocument.Body(pages)), xml)
         } else {
-            logcat(LogPriority.WARN) { "No panels detected on any page of $chapterId; not caching, will retry" }
+            logcat(LogPriority.ERROR) {
+                "Panels: no panels on any of ${imageEntries.size} pages of chapter $chapterId; " +
+                    "not caching, will retry on next open"
+            }
         }
         return result
     }
@@ -246,11 +249,20 @@ class AcbfPanelResolver(
                 }
             }
 
-            if (boxes.isEmpty()) return emptyList()
+            if (boxes.isEmpty()) {
+                logcat(LogPriority.ERROR) { "Panels[$entryName]: both detectors inconclusive" }
+                return emptyList()
+            }
             // Detector output is normalized, so planning against the page's true dimensions (not the
             // downsampled bitmap's) keeps panel rects in original-image pixel space, which is what
             // ACBF frames and the reader's zoom both expect.
-            return planner.plan(boxes, pageWidth, pageHeight, readingDirection)
+            val planned = planner.plan(boxes, pageWidth, pageHeight, readingDirection)
+            if (planned.isEmpty()) {
+                logcat(LogPriority.ERROR) {
+                    "Panels[$entryName]: ${boxes.size} boxes detected but planner rejected the page"
+                }
+            }
+            return planned
         } finally {
             bitmap.recycle()
         }
