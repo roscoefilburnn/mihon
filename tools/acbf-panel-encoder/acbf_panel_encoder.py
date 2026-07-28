@@ -164,7 +164,11 @@ def collect_archives(paths: list[Path]) -> list[Path]:
     """Expands directories into the .cbz files under them, so a whole library can be handed over."""
     found: list[Path] = []
     for path in paths:
-        if path.is_dir():
+        if not path.exists():
+            # Worth being explicit: on Termux the shared-storage symlink lives at ~/storage/shared,
+            # so an absolute /storage/shared/... silently does not resolve.
+            print(f"{path}: no such file or directory", file=sys.stderr)
+        elif path.is_dir():
             found.extend(sorted(p for p in path.rglob("*") if p.suffix.lower() == ".cbz"))
             unsupported = sorted(p for p in path.rglob("*") if p.suffix.lower() == ".cbr")
             for archive in unsupported:
