@@ -160,31 +160,63 @@ def write_into_archive(archive_path: Path, acbf: bytes, entry_name: str, output:
     return destination
 
 
+def collect_archives(paths: list[Path]) -> list[Path]:
+    """Expands directories into the .cbz files under them, so a whole library can be handed over."""
+    found: list[Path] = []
+    for path in paths:
+        if path.is_dir():
+            found.extend(sorted(p for p in path.rglob("*") if p.suffix.lower() == ".cbz"))
+            unsupported = sorted(p for p in path.rglob("*") if p.suffix.lower() == ".cbr")
+            for archive in unsupported:
+                print(f"{archive}: .cbr (RAR) is not supported, skipping", file=sys.stderr)
+        else:
+            found.append(path)
+    return found
+
+
+def already_encoded(archive_path: Path) -> bool:
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            return any(Path(n).suffix.lower() == ".acbf" for n in archive.namelist())
+    except zipfile.BadZipFile:
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("archives", nargs="+", type=Path, help="CBZ file(s) to encode")
+    parser.add_argument("archives", nargs="+", type=Path, help="CBZ file(s), or directories to search")
     parser.add_argument("--kumiko", help="path to a kumiko checkout (else $KUMIKO_PATH, else ./kumiko)")
     parser.add_argument("--rtl", action="store_true", help="right-to-left reading order (manga)")
     parser.add_argument("-o", "--output", type=Path, help="write here instead of updating in place")
     parser.add_argument("--overlay", type=Path, help="also write annotated PNGs here to check quality")
     parser.add_argument("--dry-run", action="store_true", help="detect and report, don't modify anything")
     parser.add_argument("--entry-name", default="panels.acbf", help="name of the .acbf entry (default: panels.acbf)")
+    parser.add_argument("--force", action="store_true", help="re-encode archives that already have an .acbf")
     args = parser.parse_args()
 
-    if args.output and len(args.archives) > 1:
+    archives = collect_archives(args.archives)
+    if not archives:
+        parser.error("no .cbz files found")
+    if args.output and len(archives) > 1:
         parser.error("--output only makes sense with a single archive")
 
     kumiko_cls = load_kumiko(args.kumiko)
     failures = 0
 
-    for archive_path in args.archives:
+    for position, archive_path in enumerate(archives, start=1):
         if not archive_path.is_file():
             print(f"{archive_path}: not found", file=sys.stderr)
             failures += 1
             continue
+        if not args.force and already_encoded(archive_path):
+            print(f"[{position}/{len(archives)}] {archive_path.name}: already encoded, skipping")
+            continue
 
-        print(f"{archive_path.name}:")
-        pages = detect(archive_path, kumiko_cls, args.rtl, args.overlay)
+        print(f"[{position}/{len(archives)}] {archive_path.name}:")
+        # Overlays go in a per-archive subdirectory; page numbering repeats across chapters, so a
+        # flat directory would have them overwrite each other.
+        overlay_dir = args.overlay / archive_path.stem if args.overlay else None
+        pages = detect(archive_path, kumiko_cls, args.rtl, overlay_dir)
         total = sum(len(p.panels) for p in pages)
         detected_pages = sum(1 for p in pages if p.panels)
         print(f"  => {total} panels across {detected_pages}/{len(pages)} pages")

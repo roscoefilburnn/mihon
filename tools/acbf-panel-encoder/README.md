@@ -48,6 +48,13 @@ pkg install opencv-python python-numpy
 python -c "import cv2; print(cv2.__version__)"   # must be 4.x
 ```
 
+Termux's build links Qt for OpenCV's GUI module, which this script never uses. If the import fails
+with `library "libdbus-1.so" not found`, install its missing dependency:
+
+```sh
+pkg install dbus
+```
+
 If that reports OpenCV 5, or the package is unavailable, use Debian under proot, whose
 `python3-opencv` is prebuilt for arm64 and still on 4.x:
 
@@ -74,9 +81,16 @@ with `--dry-run` before committing to a library-sized batch.
 # check detection quality without touching the archive
 ./acbf_panel_encoder.py chapter.cbz --kumiko ./kumiko --dry-run --overlay ./overlays
 
-# a whole library
-./acbf_panel_encoder.py ~/comics/**/*.cbz --kumiko ./kumiko
+# a whole library -- directories are searched recursively for .cbz
+./acbf_panel_encoder.py /sdcard/Comics/downloads --kumiko ./kumiko
 ```
+
+Archives that already contain an `.acbf` are skipped, so a batch over a library can be interrupted
+and re-run without redoing finished chapters. Pass `--force` to re-encode them anyway. `.cbr` (RAR)
+is not supported and is reported and skipped.
+
+With `--overlay`, each archive gets its own subdirectory — page numbering repeats across chapters,
+so a flat directory would have them overwrite each other.
 
 `--kumiko` can be replaced by a `KUMIKO_PATH` environment variable, or a `kumiko` directory next to
 wherever you run it.
