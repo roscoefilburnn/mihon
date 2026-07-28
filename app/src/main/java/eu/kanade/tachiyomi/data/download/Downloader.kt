@@ -434,7 +434,14 @@ class Downloader(
                     )
                 } catch (e: Throwable) {
                     if (e is CancellationException) throw e
-                    logcat(LogPriority.WARN, e) { "Panel encoding failed for ${download.chapter.name}" }
+                    logcat(LogPriority.ERROR, e) { "Panels: encoding failed for ${download.chapter.name}" }
+                }
+            } else if (downloadPreferences.saveChaptersAsCBZ.get()) {
+                // Archived, but the finished .cbz couldn't be resolved afterwards. Silently skipping
+                // here is indistinguishable from detection finding nothing, so make it visible.
+                logcat(LogPriority.ERROR) {
+                    "Panels: archived ${download.chapter.name} but could not resolve " +
+                        "$chapterDirname.cbz afterwards; skipping encode"
                 }
             }
 
