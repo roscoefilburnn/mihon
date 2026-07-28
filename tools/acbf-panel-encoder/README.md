@@ -34,6 +34,34 @@ git clone https://github.com/njean42/kumiko
 pip install "opencv-python-headless<5" numpy
 ```
 
+### On Android
+
+`pip install opencv-python` has no prebuilt aarch64-Android wheels, so pip tries to build OpenCV
+from source and that will not finish. Use a packaged build instead.
+
+Termux, via the user repository — note the package is named after the PyPI project, not the Debian
+one:
+
+```sh
+pkg install tur-repo
+pkg install opencv-python python-numpy
+python -c "import cv2; print(cv2.__version__)"   # must be 4.x
+```
+
+If that reports OpenCV 5, or the package is unavailable, use Debian under proot, whose
+`python3-opencv` is prebuilt for arm64 and still on 4.x:
+
+```sh
+termux-setup-storage        # in Termux, before logging in, so /sdcard is reachable
+pkg install proot-distro
+proot-distro install debian
+proot-distro login debian
+apt update && apt install -y python3 python3-numpy python3-opencv git
+```
+
+proot emulates syscalls in userspace, so detection runs slower than native. Time a single chapter
+with `--dry-run` before committing to a library-sized batch.
+
 ## Usage
 
 ```sh
