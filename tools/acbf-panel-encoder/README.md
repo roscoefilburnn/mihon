@@ -99,6 +99,61 @@ wherever you run it.
 large batch: reading order is only as good as the `--rtl` flag matching the book, and a page whose
 boxes look wrong in the overlay will step through wrongly in the reader.
 
+## Unattended encoding on Android
+
+`encode-comics.sh` sweeps a library and encodes whatever isn't done yet. Because the encoder skips
+archives that already contain an `.acbf`, a repeat sweep costs only a read of each archive's central
+directory — a re-run over an already-encoded library takes well under a second. That makes one
+script serve as both the manual "do everything" button and the periodic new-download watcher; there
+is no separate monitor to keep running.
+
+Configure by exporting before the call, or by editing the block at the top:
+
+| Variable | Default |
+| --- | --- |
+| `COMICS_DIR` | `~/storage/shared/Comics/downloads` |
+| `KUMIKO_DIR` | `~/kumiko` |
+| `ENCODER` | `~/acbf_panel_encoder.py` |
+| `LOG_FILE` | `~/acbf-encode.log` |
+| `RTL` | `0` — set `1` for a manga library |
+
+It takes a wake lock so Android doesn't suspend detection when the screen goes off, holds a lock
+directory so a widget tap during a scheduled run doesn't start a second sweep, appends to the log,
+and posts a notification on start and finish if Termux:API is installed. `RTL` is per run, so a
+library mixing manga and left-to-right comics needs one invocation per root.
+
+### One tap: Termux:Widget
+
+Install the Termux:Widget app, then:
+
+```sh
+mkdir -p ~/.shortcuts
+cp encode-comics.sh ~/.shortcuts/
+chmod +x ~/.shortcuts/encode-comics.sh
+```
+
+Add the Termux:Widget widget to your home screen; it lists what's in `~/.shortcuts`. Tapping it
+runs a sweep.
+
+### Periodic: termux-job-scheduler
+
+Needs Termux:API. Runs every six hours, only while charging, surviving reboot:
+
+```sh
+termux-job-scheduler \
+    --script ~/.shortcuts/encode-comics.sh \
+    --period-ms 21600000 \
+    --persisted true \
+    --charging true
+```
+
+`--charging true` is deliberate — detection is sustained CPU work and will noticeably drain a
+battery otherwise. Inspect or cancel with `termux-job-scheduler --pending` and
+`--cancel-all`. Android treats the period as a floor, not a guarantee, and may defer a job well past
+it depending on doze state.
+
+Check on a run with `tail -f ~/acbf-encode.log`.
+
 ## Output
 
 An entry named `panels.acbf` (override with `--entry-name`), replacing any existing `.acbf`:
