@@ -13,4 +13,7 @@ dependencies {
     implementation(projects.sourceApi)
 
     implementation(libs.bundles.serialization)
+
+    testImplementation(libs.bundles.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

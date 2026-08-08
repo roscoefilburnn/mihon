@@ -68,6 +68,17 @@ class ReaderPreferences(
 
     val landscapeZoom: Preference<Boolean> = preferenceStore.getBoolean("landscape_zoom", true)
 
+    /**
+     * Master kill-switch for ACBF panel encoding: embedded-ACBF/cache reads and classical/ML
+     * panel detection are entirely skipped while this is false, reproducing pre-feature reader
+     * behavior exactly. Defaults to disabled since panel detection runs inference per page on
+     * chapter load.
+     */
+    val panelDetectionEnabled: Preference<Boolean> = preferenceStore.getBoolean("panel_detection_enabled", false)
+
+    /** Tap-to-advance-through-panels-before-turning-the-page, for pager reading modes. */
+    val panelNavigation: Preference<Boolean> = preferenceStore.getBoolean("pref_panel_navigation_key", false)
+
     val cropBordersWebtoon: Preference<Boolean> = preferenceStore.getBoolean("crop_borders_webtoon", false)
 
     val webtoonSidePadding: Preference<Int> = preferenceStore.getInt("webtoon_side_padding", WEBTOON_PADDING_MIN)

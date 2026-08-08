@@ -216,6 +216,23 @@ open class ReaderPageImageView @JvmOverloads constructor(
     }
 
     /**
+     * Zooms/pans to frame [pageRect] — source-image pixel coordinates, e.g. a
+     * [mihon.core.panels.PanelRect.rect]. No-ops if the image isn't ready yet.
+     */
+    fun zoomToPanel(pageRect: RectF) {
+        (pageView as? SubsamplingScaleImageView)?.let { view ->
+            if (!view.isReady || pageRect.isEmpty) return
+            val targetScale = minOf(view.width / pageRect.width(), view.height / pageRect.height())
+            val center = PointF(pageRect.centerX(), pageRect.centerY())
+            view.animateScaleAndCenter(targetScale, center)!!
+                .withDuration(300)
+                .withEasing(EASE_IN_OUT_QUAD)
+                .withInterruptible(true)
+                .start()
+        }
+    }
+
+    /**
      * Pans the image.
      * @param fn a function that computes the new center of the image
      */
