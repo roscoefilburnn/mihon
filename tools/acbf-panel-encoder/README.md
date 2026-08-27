@@ -154,6 +154,45 @@ it depending on doze state.
 
 Check on a run with `tail -f ~/acbf-encode.log`.
 
+## Tuning detection
+
+Defaults are Kumiko's own. ACBF Editor passes `min_panel_size_ratio=False` and
+`panel_expansion=False`, which this deliberately does not copy: it is an interactive editor where a
+human drags frames afterwards, and nothing corrects them here.
+
+| Symptom | Option |
+| --- | --- |
+| Small panels missing | `--min-panel-size 0.03` |
+| Spurious extra boxes | `--min-panel-size 0.15` |
+| Boxes clip bubbles or SFX | `--margin 0.03` |
+| Panels overrun into neighbours | `--no-expand` |
+| Wrong order within a row | add or drop `--rtl` |
+
+`--min-panel-size` is the fraction of the page's **shorter side** below which a detection is
+discarded. Kumiko's default is `0.1`, so on a 1988px-wide page anything under ~198px is dropped —
+enough to lose a genuine narrow panel. Note that Kumiko reads this as
+`value or DEFAULT_MIN_PANEL_SIZE_RATIO`, so passing `0` means the default, not "no minimum"; use a
+small positive number like `0.01` instead.
+
+It is a single trade-off dial: lowering it recovers small panels *and* admits spurious boxes.
+There is no value that fixes both, so tune it per-series against overlays rather than hunting for
+one global setting.
+
+`--margin` grows every panel by a fraction of its own size on each side, clamped to the page. This
+is independent of Kumiko's expansion, which stops at neighbouring panels — use it when art or
+bubbles overflow their frame and get cut off on screen.
+
+Measured on a synthetic page with six drawn panels, one deliberately 150px tall:
+
+| Settings | Panels found | Total area |
+| --- | --- | --- |
+| defaults | 5 of 6 | — |
+| `--min-panel-size 0.03` | 6 of 6 | 5,282,566 px |
+| `--min-panel-size 0.03 --no-expand` | 6 of 6 | 4,945,263 px |
+| `--min-panel-size 0.03 --margin 0.03` | 6 of 6 | 5,884,327 px |
+
+Always check with `--dry-run --overlay` before writing a batch.
+
 ## Output
 
 An entry named `panels.acbf` (override with `--entry-name`), replacing any existing `.acbf`:

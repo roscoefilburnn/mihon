@@ -43,6 +43,20 @@ def load_kumiko(kumiko_path: str | None):
     )
 
 
+def grow(panel: tuple[int, int, int, int], margin: float, width: int, height: int):
+    """Grows a panel by [margin] of its own size on each side, clamped to the page.
+
+    Independent of Kumiko's own panel expansion, which stops at neighbouring panels. This is for
+    deliberate breathing room around the detected box so art and bubbles that overflow a frame stay
+    on screen.
+    """
+    x, y, w, h = panel
+    dx, dy = int(w * margin), int(h * margin)
+    left, top = max(0, x - dx), max(0, y - dy)
+    right, bottom = min(width, x + w + dx), min(height, y + h + dy)
+    return (left, top, right - left, bottom - top)
+
+
 @dataclass
 class Page:
     """One archive entry and the panels detected on it, in source-image pixels."""
@@ -63,7 +77,15 @@ def image_entries(archive: zipfile.ZipFile) -> list[str]:
     return sorted(names, key=lambda n: n.lower())
 
 
-def detect(archive_path: Path, kumiko_cls, rtl: bool, overlay_dir: Path | None) -> list[Page]:
+def detect(
+    archive_path: Path,
+    kumiko_cls,
+    rtl: bool,
+    overlay_dir: Path | None,
+    min_panel_size: float | None,
+    expand: bool,
+    margin: float,
+) -> list[Page]:
     pages: list[Page] = []
     with zipfile.ZipFile(archive_path) as archive, tempfile.TemporaryDirectory() as tmp:
         entries = image_entries(archive)
@@ -76,14 +98,20 @@ def detect(archive_path: Path, kumiko_cls, rtl: bool, overlay_dir: Path | None) 
             with archive.open(href) as src, open(extracted, "wb") as dst:
                 shutil.copyfileobj(src, dst)
 
-            # The same options ACBF Editor passes in find_frames().
+            # ACBF Editor passes min_panel_size_ratio=False and panel_expansion=False here. Both
+            # are wrong for unattended batch use: Kumiko reads the ratio as
+            # `value or DEFAULT_MIN_PANEL_SIZE_RATIO`, so False silently means 1/10 rather than
+            # "no minimum", and disabling expansion leaves boxes hugging the art tightly enough to
+            # clip overflowing bubbles. ACBF Editor is an interactive editor where a human drags
+            # frames afterwards; nothing corrects them here, so Kumiko's own defaults are used and
+            # both are exposed as options.
             kumiko = kumiko_cls(
                 {
                     "debug": False,
                     "progress": False,
                     "rtl": rtl,
-                    "min_panel_size_ratio": False,
-                    "panel_expansion": False,
+                    "min_panel_size_ratio": min_panel_size,
+                    "panel_expansion": expand,
                 },
             )
             try:
@@ -91,6 +119,8 @@ def detect(archive_path: Path, kumiko_cls, rtl: bool, overlay_dir: Path | None) 
                 info = kumiko.get_infos()[0]
                 panels = [tuple(int(v) for v in p) for p in info["panels"]]
                 width, height = (int(v) for v in info["size"])
+                if margin:
+                    panels = [grow(p, margin, width, height) for p in panels]
             except Exception as exc:  # noqa: BLE001 - one bad page must not lose the chapter
                 print(f"  ! {href}: detection failed ({type(exc).__name__}: {exc})", file=sys.stderr)
                 panels, width, height = [], 0, 0
@@ -191,6 +221,25 @@ def main() -> int:
     parser.add_argument("archives", nargs="+", type=Path, help="CBZ file(s), or directories to search")
     parser.add_argument("--kumiko", help="path to a kumiko checkout (else $KUMIKO_PATH, else ./kumiko)")
     parser.add_argument("--rtl", action="store_true", help="right-to-left reading order (manga)")
+    parser.add_argument(
+        "--min-panel-size",
+        type=float,
+        metavar="RATIO",
+        help="drop panels smaller than this fraction of the page's shorter side "
+        "(Kumiko default 0.1; lower to keep small panels, raise to drop spurious boxes)",
+    )
+    parser.add_argument(
+        "--no-expand",
+        action="store_true",
+        help="don't let Kumiko expand panels toward their gutters (expansion is on by default)",
+    )
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=0.0,
+        metavar="RATIO",
+        help="grow every panel by this fraction of its own size per side, e.g. 0.03 (default: 0)",
+    )
     parser.add_argument("-o", "--output", type=Path, help="write here instead of updating in place")
     parser.add_argument("--overlay", type=Path, help="also write annotated PNGs here to check quality")
     parser.add_argument("--dry-run", action="store_true", help="detect and report, don't modify anything")
@@ -220,7 +269,15 @@ def main() -> int:
         # Overlays go in a per-archive subdirectory; page numbering repeats across chapters, so a
         # flat directory would have them overwrite each other.
         overlay_dir = args.overlay / archive_path.stem if args.overlay else None
-        pages = detect(archive_path, kumiko_cls, args.rtl, overlay_dir)
+        pages = detect(
+            archive_path,
+            kumiko_cls,
+            args.rtl,
+            overlay_dir,
+            args.min_panel_size,
+            not args.no_expand,
+            args.margin,
+        )
         total = sum(len(p.panels) for p in pages)
         detected_pages = sum(1 for p in pages if p.panels)
         print(f"  => {total} panels across {detected_pages}/{len(pages)} pages")
