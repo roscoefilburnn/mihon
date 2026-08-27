@@ -20,6 +20,15 @@ LOG_FILE="${LOG_FILE:-$HOME/acbf-encode.log}"
 # Right-to-left panel order within a row. Set RTL=1 for a manga library. A mixed library needs one
 # run per root, since this is a whole-run setting and nothing here can tell the two apart.
 RTL="${RTL:-0}"
+# Detection tuning, passed straight through to the encoder. Empty means the encoder's default.
+# See "Tuning detection" in README.md.
+MIN_PANEL_SIZE="${MIN_PANEL_SIZE:-}"   # e.g. 0.03 to keep small panels, 0.15 to drop spurious ones
+MARGIN="${MARGIN:-}"                   # e.g. 0.03 to grow every panel and stop bubbles clipping
+EXPAND="${EXPAND:-1}"                  # 0 to stop Kumiko expanding panels toward their gutters
+# Re-encode archives that already have an .acbf. Off by default, which is what makes a repeat sweep
+# cheap -- but it also means changing the tuning above has no effect on already-encoded archives
+# until you run once with FORCE=1.
+FORCE="${FORCE:-0}"
 # -----------------------------------------------------------------------------------------------
 
 LOCK_DIR="$HOME/.acbf-encode.lock"
@@ -79,8 +88,12 @@ fi
 
 args=("$ENCODER" "$COMICS_DIR" --kumiko "$KUMIKO_DIR")
 [ "$RTL" = "1" ] && args+=(--rtl)
+[ "$EXPAND" = "0" ] && args+=(--no-expand)
+[ "$FORCE" = "1" ] && args+=(--force)
+[ -n "$MIN_PANEL_SIZE" ] && args+=(--min-panel-size "$MIN_PANEL_SIZE")
+[ -n "$MARGIN" ] && args+=(--margin "$MARGIN")
 
-log "starting sweep of $COMICS_DIR (rtl=$RTL)"
+log "starting sweep of $COMICS_DIR (rtl=$RTL force=$FORCE min=${MIN_PANEL_SIZE:-default} margin=${MARGIN:-0} expand=$EXPAND)"
 notify "Encoding started"
 started=$(date +%s)
 

@@ -116,6 +116,18 @@ Configure by exporting before the call, or by editing the block at the top:
 | `ENCODER` | `~/acbf_panel_encoder.py` |
 | `LOG_FILE` | `~/acbf-encode.log` |
 | `RTL` | `0` — set `1` for a manga library |
+| `MIN_PANEL_SIZE` | encoder default (Kumiko's `0.1`) |
+| `MARGIN` | `0` |
+| `EXPAND` | `1` — set `0` to stop Kumiko expanding toward gutters |
+| `FORCE` | `0` — set `1` to re-encode archives that already have an `.acbf` |
+
+**Changing the tuning does not affect archives already encoded.** The skip that makes repeat sweeps
+cheap also means a retuned sweep silently passes over everything it did before. Run once with
+`FORCE=1` after changing `MIN_PANEL_SIZE`, `MARGIN` or `EXPAND`, then drop it again:
+
+```sh
+FORCE=1 MIN_PANEL_SIZE=0.03 MARGIN=0.03 ~/.shortcuts/encode-comics.sh
+```
 
 It takes a wake lock so Android doesn't suspend detection when the screen goes off, holds a lock
 directory so a widget tap during a scheduled run doesn't start a second sweep, appends to the log,
