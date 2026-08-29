@@ -131,6 +131,14 @@ def reading_order(boxes: list, rtl: bool) -> list:
     return ordered
 
 
+def image_size(path: Path) -> tuple[int, int]:
+    """Page dimensions, needed when Kumiko failed but the model still produced boxes."""
+    import cv2  # noqa: PLC0415
+
+    im = cv2.imread(str(path))
+    return (0, 0) if im is None else (im.shape[1], im.shape[0])
+
+
 def grow(panel: tuple[int, int, int, int], margin: float, width: int, height: int):
     """Grows a panel by [margin] of its own size on each side, clamped to the page.
 
@@ -208,20 +216,31 @@ def detect(
                     "panel_expansion": expand,
                 },
             )
+            # Each detector gets its own try: Kumiko has internal failures on some pages (e.g.
+            # "list.remove(x): x not in list"), and sharing a block meant one crashing discarded the
+            # other's results for that page -- the exact pages fusion exists to rescue.
+            panels: list[tuple[int, int, int, int]] = []
+            width = height = 0
             try:
                 kumiko.parse_image(str(extracted))
                 info = kumiko.get_infos()[0]
                 panels = [tuple(int(v) for v in p) for p in info["panels"]]
                 width, height = (int(v) for v in info["size"])
-                if model is not None:
+            except Exception as exc:  # noqa: BLE001 - one bad page must not lose the chapter
+                print(f"  ! {href}: kumiko failed ({type(exc).__name__}: {exc})", file=sys.stderr)
+
+            if model is not None:
+                try:
                     detected = detect_with_model(model, extracted, model_conf, model_imgsz)
+                    if not width:
+                        width, height = image_size(extracted)
                     panels = detected if model_only else fuse(panels, detected, fuse_iou)
                     panels = reading_order(panels, rtl)
-                if margin:
-                    panels = [grow(p, margin, width, height) for p in panels]
-            except Exception as exc:  # noqa: BLE001 - one bad page must not lose the chapter
-                print(f"  ! {href}: detection failed ({type(exc).__name__}: {exc})", file=sys.stderr)
-                panels, width, height = [], 0, 0
+                except Exception as exc:  # noqa: BLE001 - keep whatever Kumiko produced
+                    print(f"  ! {href}: model failed ({type(exc).__name__}: {exc})", file=sys.stderr)
+
+            if margin and width:
+                panels = [grow(p, margin, width, height) for p in panels]
 
             page = Page(href=href, width=width, height=height, panels=panels)
             pages.append(page)
