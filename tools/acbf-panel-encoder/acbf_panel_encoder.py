@@ -86,21 +86,61 @@ def iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     return overlap / union if union else 0.0
 
 
-def fuse(kumiko: list, model_boxes: list, threshold: float) -> list:
+def area(b: tuple[int, int, int, int]) -> int:
+    return b[2] * b[3]
+
+
+def intersection(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> int:
+    iw = max(0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    ih = max(0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    return iw * ih
+
+
+def is_redundant(
+    candidate: tuple[int, int, int, int],
+    existing: list,
+    iou_threshold: float,
+    contain: float,
+    inset_max: float,
+) -> bool:
+    """Whether a model box duplicates, straddles or swallows what Kumiko already found.
+
+    IoU alone is too weak here. A model box covering two adjacent panels scores below the IoU
+    threshold against each of them individually, so it survives as a third box lying across both --
+    the main source of noise when fusing. Containment in either direction catches that:
+
+    * mostly inside an existing panel and not much smaller -> a near-duplicate, drop it;
+    * mostly inside but *much* smaller -> a genuine inset panel drawn within a larger one, keep it,
+      since recovering those is the reason for fusing at all;
+    * swallowing an existing panel -> a merge spanning several real panels, drop it.
+    """
+    for other in existing:
+        overlap = intersection(candidate, other)
+        if not overlap:
+            continue
+        union = area(candidate) + area(other) - overlap
+        if union and overlap / union >= iou_threshold:
+            return True
+        if area(candidate) and overlap / area(candidate) >= contain:
+            # Contained: only survives if small enough relative to its parent to be an inset.
+            if area(candidate) / max(area(other), 1) > inset_max:
+                return True
+        if area(other) and overlap / area(other) >= contain:
+            return True
+    return False
+
+
+def fuse(kumiko: list, model_boxes: list, threshold: float, contain: float = 0.8, inset_max: float = 0.5) -> list:
     """Union of both detectors' boxes, keeping Kumiko's geometry where they agree.
 
     The two fail on disjoint pages -- Kumiko traces gutters, so it is exact on ruled borders but
     blind to panels that have none; the model recognises a panel semantically but bounds it loosely
     and merges dense rows. So agreement keeps Kumiko's coordinates, and a model box matching nothing
     is a panel Kumiko missed.
-
-    Deliberately IoU and not containment: an inset panel lies entirely inside its parent, so
-    containment would discard precisely the boxes this exists to recover. A small inset has low IoU
-    with the large panel around it and survives.
     """
     fused = list(kumiko)
     for box in model_boxes:
-        if all(iou(box, existing) < threshold for existing in kumiko):
+        if not is_redundant(box, fused, threshold, contain, inset_max):
             fused.append(box)
     return fused
 
@@ -185,6 +225,8 @@ def detect(
     model_conf: float = 0.25,
     model_imgsz: int = 640,
     fuse_iou: float = 0.5,
+    fuse_contain: float = 0.8,
+    inset_max: float = 0.5,
     model_only: bool = False,
 ) -> list[Page]:
     pages: list[Page] = []
@@ -234,7 +276,7 @@ def detect(
                     detected = detect_with_model(model, extracted, model_conf, model_imgsz)
                     if not width:
                         width, height = image_size(extracted)
-                    panels = detected if model_only else fuse(panels, detected, fuse_iou)
+                    panels = detected if model_only else fuse(panels, detected, fuse_iou, fuse_contain, inset_max)
                     panels = reading_order(panels, rtl)
                 except Exception as exc:  # noqa: BLE001 - keep whatever Kumiko produced
                     print(f"  ! {href}: model failed ({type(exc).__name__}: {exc})", file=sys.stderr)
@@ -365,6 +407,20 @@ def main() -> int:
         metavar="IOU",
         help="a model box overlapping a Kumiko box by more than this is the same panel (default 0.5)",
     )
+    parser.add_argument(
+        "--fuse-contain",
+        type=float,
+        default=0.8,
+        metavar="RATIO",
+        help="a model box this much inside (or containing) an existing one is redundant (default 0.8)",
+    )
+    parser.add_argument(
+        "--inset-max",
+        type=float,
+        default=0.5,
+        metavar="RATIO",
+        help="a contained box smaller than this fraction of its parent is kept as an inset (default 0.5)",
+    )
     parser.add_argument("--model-only", action="store_true", help="use the model alone, skipping Kumiko")
     parser.add_argument(
         "--margin",
@@ -417,6 +473,8 @@ def main() -> int:
             args.model_conf,
             args.model_imgsz,
             args.fuse_iou,
+            args.fuse_contain,
+            args.inset_max,
             args.model_only,
         )
         total = sum(len(p.panels) for p in pages)
