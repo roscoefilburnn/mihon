@@ -80,3 +80,17 @@
 # Firebase
 -keep class com.google.firebase.installations.** { *; }
 -keep interface com.google.firebase.installations.** { *; }
+
+##---------------Begin: proguard configuration for panel detection (OpenCV / TFLite) ----------
+# Both libraries are JNI-heavy: native code resolves these Java classes, methods and fields by
+# name, so R8 sees them as unreachable and strips them even with -dontobfuscate (which only
+# disables renaming, not shrinking). A stripped member fails to resolve inside JNI, which aborts
+# the process rather than throwing something catchable.
+-keep class org.opencv.** { *; }
+-keep interface org.opencv.** { *; }
+-dontwarn org.opencv.**
+
+-keep class org.tensorflow.lite.** { *; }
+-keep interface org.tensorflow.lite.** { *; }
+-dontwarn org.tensorflow.lite.**
+##---------------End: proguard configuration for panel detection (OpenCV / TFLite) ----------

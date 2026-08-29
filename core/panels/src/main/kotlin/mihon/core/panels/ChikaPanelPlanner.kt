@@ -28,9 +28,10 @@ class ChikaPanelPlanner : PanelPlanner {
         if (panels.isEmpty()) return emptyList()
 
         val rightToLeft = readingDirection == ReadingDirection.RIGHT_TO_LEFT
+        // The reliability gate lives inside the pipeline, applied to the unpadded plan; checking it
+        // here would measure overlap the padding step just created. An empty result means the page
+        // was judged unreliable.
         val zoomRegions = PanelPipeline.zoomRegions(panels, bubbles, pageWidth, pageHeight, rightToLeft)
-
-        if (!PanelReliability.isReliable(zoomRegions)) return emptyList()
 
         return zoomRegions.map { panel ->
             PanelRect(

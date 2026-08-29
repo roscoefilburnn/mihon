@@ -26,6 +26,14 @@ import java.text.NumberFormat
 
 @Composable
 internal fun ColumnScope.ReadingModePage(screenModel: ReaderSettingsScreenModel) {
+    // Quick toggle, deliberately the first thing in this sheet: Guided Panel is the one reader
+    // setting a reader is likely to flip mid-chapter, so it shouldn't require leaving the reader
+    // for the app's settings screen.
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_guided_panel),
+        pref = screenModel.preferences.guidedPanel,
+    )
+
     HeadingItem(MR.strings.pref_category_for_this_series)
     val manga by screenModel.mangaFlow.collectAsState()
 
@@ -107,13 +115,6 @@ private fun ColumnScope.PagerViewerSettings(screenModel: ReaderSettingsScreenMod
     CheckboxItem(
         label = stringResource(MR.strings.pref_navigate_pan),
         pref = screenModel.preferences.navigateToPan,
-    )
-
-    // No-ops unless "Enable panel detection" is also on (Settings > Reader) — this quick sheet's
-    // CheckboxItem has no enabled/disabled gating support, unlike the full settings screen.
-    CheckboxItem(
-        label = stringResource(MR.strings.pref_panel_navigation),
-        pref = screenModel.preferences.panelNavigation,
     )
 
     val dualPageSplitPaged by screenModel.preferences.dualPageSplitPaged.collectAsState()

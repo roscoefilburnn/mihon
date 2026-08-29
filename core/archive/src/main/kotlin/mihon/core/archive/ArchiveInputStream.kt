@@ -31,20 +31,30 @@ internal class ArchiveInputStream(buffer: Long, size: Long) : InputStream() {
     private val oneByteBuffer = ByteBuffer.allocateDirect(1)
 
     override fun read(): Int {
-        read(oneByteBuffer)
-        return if (oneByteBuffer.hasRemaining()) oneByteBuffer.get().toUByte().toInt() else -1
+        oneByteBuffer.clear()
+        return if (readInto(oneByteBuffer) > 0) oneByteBuffer.get(0).toUByte().toInt() else -1
     }
 
     override fun read(b: ByteArray, off: Int, len: Int): Int {
-        val buffer = ByteBuffer.wrap(b, off, len)
-        read(buffer)
-        return if (buffer.hasRemaining()) buffer.remaining() else -1
+        if (len == 0) return 0
+        return readInto(ByteBuffer.wrap(b, off, len)).takeIf { it > 0 } ?: -1
     }
 
-    private fun read(buffer: ByteBuffer) {
-        buffer.clear()
+    /**
+     * Reads into [buffer] between its current position and limit, returning the number of bytes
+     * read, or 0 at end of archive entry.
+     *
+     * Deliberately does not call [ByteBuffer.clear]: on the buffer from `ByteBuffer.wrap(b, off,
+     * len)` that would reset position to 0 and limit to the *array's* capacity, discarding both
+     * `off` and `len`. libarchive would then write at the wrong offset and up to the whole array,
+     * and this method would report more bytes read than the caller asked for. Callers that size a
+     * destination to `len` -- notably Skia's JavaInputStreamAdaptor, which copies the returned
+     * count out with GetByteArrayRegion -- overrun that destination and crash the process.
+     */
+    private fun readInto(buffer: ByteBuffer): Int {
+        val start = buffer.position()
         Archive.readData(archive, buffer)
-        buffer.flip()
+        return buffer.position() - start
     }
 
     override fun close() {

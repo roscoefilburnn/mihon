@@ -10,9 +10,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
-import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import mihon.core.archive.archiveReader
-import mihon.core.panels.ReadingDirection
 import tachiyomi.domain.manga.model.Manga
 import uy.kohesive.injekt.injectLazy
 
@@ -55,16 +53,12 @@ internal class DownloadPageLoader(
     }
 
     private suspend fun getPagesFromArchive(file: UniFile): List<ReaderPage> {
-        val readingDirection = if ((manga.viewerFlags.toInt() and ReadingMode.MASK) ==
-            ReadingMode.RIGHT_TO_LEFT.flagValue
-        ) {
-            ReadingDirection.RIGHT_TO_LEFT
-        } else {
-            // Doesn't account for a global RTL default when the manga has no per-manga
-            // override — only affects panel reading *order* within a row, not detection.
-            ReadingDirection.LEFT_TO_RIGHT
-        }
-        val panelContext = PanelResolutionContext(manga.id, chapter.chapter.id!!, file, readingDirection)
+        val panelContext = PanelResolutionContext(
+            manga.id,
+            chapter.chapter.id!!,
+            file,
+            manga.panelReadingDirection(),
+        )
         val loader = ArchivePageLoader(file.archiveReader(context), panelContext).also { archivePageLoader = it }
         return loader.getPages()
     }

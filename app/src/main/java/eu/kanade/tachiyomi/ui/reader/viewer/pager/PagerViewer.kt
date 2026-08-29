@@ -332,7 +332,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     protected open fun moveRight() {
         if (pager.currentItem != adapter.count - 1) {
             val holder = (currentPage as? ReaderPage)?.let(::getPageHolder)
-            if (holder != null && config.panelNavigation && holder.hasNextPanelRight()) {
+            if (holder != null && config.guidedPanel && holder.hasNextPanelRight()) {
                 holder.advanceToNextPanelRight()
             } else if (holder != null && config.navigateToPan && holder.canPanRight()) {
                 holder.panRight()
@@ -348,7 +348,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     protected open fun moveLeft() {
         if (pager.currentItem != 0) {
             val holder = (currentPage as? ReaderPage)?.let(::getPageHolder)
-            if (holder != null && config.panelNavigation && holder.hasNextPanelLeft()) {
+            if (holder != null && config.guidedPanel && holder.hasNextPanelLeft()) {
                 holder.advanceToNextPanelLeft()
             } else if (holder != null && config.navigateToPan && holder.canPanLeft()) {
                 holder.panLeft()
