@@ -43,13 +43,106 @@ def load_kumiko(kumiko_path: str | None):
     )
 
 
-def load_model(path: str):
-    """Loads a YOLO panel detector. Ultralytics is imported lazily so the encoder runs without it."""
-    try:
-        from ultralytics import YOLO  # noqa: PLC0415
-    except ImportError:
-        raise SystemExit("--model needs ultralytics:  pip install ultralytics") from None
-    return YOLO(path, task="detect")
+class LiteRTDetector:
+    """Runs a .tflite panel detector without PyTorch.
+
+    Ultralytics pulls in torch, which has no aarch64-Android wheels, so fusion is unusable on
+    Termux through it. LiteRT is a pure inference runtime that installs there, and the decode this
+    needs turns out to be trivial: the model is NMS-free (YOLO26), so its output is already a fixed
+    set of finished detections rather than raw anchors needing suppression.
+    """
+
+    def __init__(self, path: str) -> None:
+        try:
+            from ai_edge_litert.interpreter import Interpreter  # noqa: PLC0415
+        except ImportError:
+            raise SystemExit("--model with a .tflite needs:  pip install ai-edge-litert") from None
+        self.interpreter = Interpreter(model_path=path)
+        self.interpreter.allocate_tensors()
+        self.input = self.interpreter.get_input_details()[0]
+        self.output = self.interpreter.get_output_details()[0]
+        self.size = int(self.input["shape"][1])
+        self.names = self._names(path)
+
+    @staticmethod
+    def _names(path: str) -> dict[int, str]:
+        """Class names from the metadata.json Ultralytics embeds in the .tflite container."""
+        try:
+            import json  # noqa: PLC0415
+
+            with zipfile.ZipFile(path) as container:
+                meta = json.loads(container.read("metadata.json"))
+            return {int(k): v for k, v in meta.get("names", {}).items()}
+        except Exception:  # noqa: BLE001 - names are a convenience, not required
+            return {}
+
+    def detect(self, image_path: Path, conf: float) -> list[tuple[int, int, int, int]]:
+        import cv2  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
+
+        image = cv2.imread(str(image_path))
+        if image is None:
+            return []
+        height, width = image.shape[:2]
+        size = self.size
+
+        # Letterbox: scale to fit, pad the remainder with YOLO's standard grey.
+        scale = min(size / width, size / height)
+        new_w, new_h = int(width * scale), int(height * scale)
+        canvas = np.full((size, size, 3), 114, np.uint8)
+        pad_x, pad_y = (size - new_w) // 2, (size - new_h) // 2
+        canvas[pad_y : pad_y + new_h, pad_x : pad_x + new_w] = cv2.resize(image, (new_w, new_h))
+
+        pixels = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        self.interpreter.set_tensor(self.input["index"], pixels[None])
+        self.interpreter.invoke()
+
+        boxes = []
+        for x1, y1, x2, y2, score, cls in self.interpreter.get_tensor(self.output["index"])[0]:
+            if score < conf:
+                continue
+            # Coordinates are normalised to the padded canvas: undo the padding, then the scale.
+            left = (x1 * size - pad_x) / scale
+            top = (y1 * size - pad_y) / scale
+            right = (x2 * size - pad_x) / scale
+            bottom = (y2 * size - pad_y) / scale
+            left, top = max(0.0, left), max(0.0, top)
+            right, bottom = min(float(width), right), min(float(height), bottom)
+            if right > left and bottom > top:
+                boxes.append((int(cls), int(left), int(top), int(right - left), int(bottom - top)))
+        return [b[1:] for b in boxes], [b[0] for b in boxes]
+
+
+class UltralyticsDetector:
+    """Wraps an Ultralytics model behind the same interface, for .pt weights LiteRT cannot read."""
+
+    def __init__(self, path: str) -> None:
+        try:
+            from ultralytics import YOLO  # noqa: PLC0415
+        except ImportError:
+            raise SystemExit("--model with a .pt needs:  pip install ultralytics") from None
+        self.model = YOLO(path, task="detect")
+        self.names = getattr(self.model, "names", {}) or {}
+        self.imgsz = 640
+
+    def detect(self, image_path: Path, conf: float):
+        result = self.model.predict(str(image_path), imgsz=self.imgsz, conf=conf, verbose=False)[0]
+        boxes, classes = [], []
+        for (x1, y1, x2, y2), cls in zip(
+            result.boxes.xyxy.cpu().numpy(), result.boxes.cls.cpu().numpy().astype(int),
+        ):
+            boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
+            classes.append(int(cls))
+        return boxes, classes
+
+
+def load_model(path: str, imgsz: int = 640):
+    """Picks a runtime: LiteRT for .tflite (no torch, works on Termux), Ultralytics for .pt."""
+    if Path(path).suffix.lower() == ".tflite":
+        return LiteRTDetector(path)
+    model = UltralyticsDetector(path)
+    model.imgsz = imgsz
+    return model
 
 
 def frame_class_ids(model) -> set[int]:
@@ -65,25 +158,10 @@ def frame_class_ids(model) -> set[int]:
 
 
 def detect_with_model(model, image_path: Path, conf: float, imgsz: int) -> list[tuple[int, int, int, int]]:
-    """Runs the model over one page, returning panel boxes as (x, y, w, h)."""
-    result = model.predict(str(image_path), imgsz=imgsz, conf=conf, verbose=False)[0]
+    """Runs the model over one page, returning only its panel-class boxes as (x, y, w, h)."""
+    boxes, classes = model.detect(image_path, conf)
     keep = frame_class_ids(model)
-    boxes = []
-    for (x1, y1, x2, y2), cls in zip(
-        result.boxes.xyxy.cpu().numpy(), result.boxes.cls.cpu().numpy().astype(int),
-    ):
-        if cls in keep:
-            boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
-    return boxes
-
-
-def iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
-    ax2, ay2, bx2, by2 = a[0] + a[2], a[1] + a[3], b[0] + b[2], b[1] + b[3]
-    iw = max(0, min(ax2, bx2) - max(a[0], b[0]))
-    ih = max(0, min(ay2, by2) - max(a[1], b[1]))
-    overlap = iw * ih
-    union = a[2] * a[3] + b[2] * b[3] - overlap
-    return overlap / union if union else 0.0
+    return [b for b, c in zip(boxes, classes) if c in keep]
 
 
 def area(b: tuple[int, int, int, int]) -> int:
@@ -443,7 +521,7 @@ def main() -> int:
         parser.error("--output only makes sense with a single archive")
 
     kumiko_cls = load_kumiko(args.kumiko)
-    model = load_model(args.model) if args.model else None
+    model = load_model(args.model, args.model_imgsz) if args.model else None
     if args.model_only and model is None:
         parser.error("--model-only needs --model")
     failures = 0
