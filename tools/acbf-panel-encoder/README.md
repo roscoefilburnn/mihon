@@ -118,7 +118,7 @@ Configure by exporting before the call, or by editing the block at the top:
 | `RTL` | `0` — set `1` for a manga library |
 | `MIN_PANEL_SIZE` | encoder default (Kumiko's `0.1`) |
 | `MARGIN` | `0` |
-| `EXPAND` | `1` — set `0` to stop Kumiko expanding toward gutters |
+| `EXPAND` | `0` — set `1` to let Kumiko expand toward gutters |
 | `FORCE` | `0` — set `1` to re-encode archives that already have an `.acbf` |
 
 **Changing the tuning does not affect archives already encoded.** The skip that makes repeat sweeps
@@ -168,16 +168,17 @@ Check on a run with `tail -f ~/acbf-encode.log`.
 
 ## Tuning detection
 
-Defaults are Kumiko's own. ACBF Editor passes `min_panel_size_ratio=False` and
-`panel_expansion=False`, which this deliberately does not copy: it is an interactive editor where a
-human drags frames afterwards, and nothing corrects them here.
+Defaults match ACBF Editor. Kumiko turns `panel_expansion` on by default; enabling it here made
+real pages worse, because with the tight gutters actual comics use, expanded panels overrun their
+neighbours. `--margin` is the better tool for breathing room — it grows a panel symmetrically
+rather than pushing it outward until it collides.
 
 | Symptom | Option |
 | --- | --- |
 | Small panels missing | `--min-panel-size 0.03` |
 | Spurious extra boxes | `--min-panel-size 0.15` |
 | Boxes clip bubbles or SFX | `--margin 0.03` |
-| Panels overrun into neighbours | `--no-expand` |
+| Panels look cramped, gutters unused | `--expand` (off by default) |
 | Wrong order within a row | add or drop `--rtl` |
 
 `--min-panel-size` is the fraction of the page's **shorter side** below which a detection is

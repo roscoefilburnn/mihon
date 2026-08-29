@@ -24,7 +24,7 @@ RTL="${RTL:-0}"
 # See "Tuning detection" in README.md.
 MIN_PANEL_SIZE="${MIN_PANEL_SIZE:-}"   # e.g. 0.03 to keep small panels, 0.15 to drop spurious ones
 MARGIN="${MARGIN:-}"                   # e.g. 0.03 to grow every panel and stop bubbles clipping
-EXPAND="${EXPAND:-1}"                  # 0 to stop Kumiko expanding panels toward their gutters
+EXPAND="${EXPAND:-0}"                  # 1 to let Kumiko expand panels toward their gutters
 # Re-encode archives that already have an .acbf. Off by default, which is what makes a repeat sweep
 # cheap -- but it also means changing the tuning above has no effect on already-encoded archives
 # until you run once with FORCE=1.
@@ -88,7 +88,7 @@ fi
 
 args=("$ENCODER" "$COMICS_DIR" --kumiko "$KUMIKO_DIR")
 [ "$RTL" = "1" ] && args+=(--rtl)
-[ "$EXPAND" = "0" ] && args+=(--no-expand)
+[ "$EXPAND" = "1" ] && args+=(--expand)
 [ "$FORCE" = "1" ] && args+=(--force)
 [ -n "$MIN_PANEL_SIZE" ] && args+=(--min-panel-size "$MIN_PANEL_SIZE")
 [ -n "$MARGIN" ] && args+=(--margin "$MARGIN")

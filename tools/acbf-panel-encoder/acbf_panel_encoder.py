@@ -98,13 +98,14 @@ def detect(
             with archive.open(href) as src, open(extracted, "wb") as dst:
                 shutil.copyfileobj(src, dst)
 
-            # ACBF Editor passes min_panel_size_ratio=False and panel_expansion=False here. Both
-            # are wrong for unattended batch use: Kumiko reads the ratio as
-            # `value or DEFAULT_MIN_PANEL_SIZE_RATIO`, so False silently means 1/10 rather than
-            # "no minimum", and disabling expansion leaves boxes hugging the art tightly enough to
-            # clip overflowing bubbles. ACBF Editor is an interactive editor where a human drags
-            # frames afterwards; nothing corrects them here, so Kumiko's own defaults are used and
-            # both are exposed as options.
+            # Kumiko reads min_panel_size_ratio as `value or DEFAULT_MIN_PANEL_SIZE_RATIO`, so
+            # ACBF Editor passing False silently selects 1/10 rather than "no minimum". That is
+            # worth exposing, hence --min-panel-size.
+            #
+            # Expansion stays off, matching ACBF Editor. Kumiko defaults it on, and turning it on
+            # here made real pages worse: with the tight gutters actual comics use, expanded panels
+            # overrun their neighbours. Use --margin instead for breathing room, since that grows a
+            # panel symmetrically rather than pushing it outward until it hits something.
             kumiko = kumiko_cls(
                 {
                     "debug": False,
@@ -229,9 +230,10 @@ def main() -> int:
         "(Kumiko default 0.1; lower to keep small panels, raise to drop spurious boxes)",
     )
     parser.add_argument(
-        "--no-expand",
+        "--expand",
         action="store_true",
-        help="don't let Kumiko expand panels toward their gutters (expansion is on by default)",
+        help="let Kumiko expand panels toward their gutters (off by default: on real pages with "
+        "tight gutters it tends to overrun neighbouring panels)",
     )
     parser.add_argument(
         "--margin",
@@ -275,7 +277,7 @@ def main() -> int:
             args.rtl,
             overlay_dir,
             args.min_panel_size,
-            not args.no_expand,
+            args.expand,
             args.margin,
         )
         total = sum(len(p.panels) for p in pages)
