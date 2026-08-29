@@ -29,6 +29,12 @@ EXPAND="${EXPAND:-0}"                  # 1 to let Kumiko expand panels toward th
 # cheap -- but it also means changing the tuning above has no effect on already-encoded archives
 # until you run once with FORCE=1.
 FORCE="${FORCE:-0}"
+# Fusion. Set MODEL to a YOLO panel detector to union its boxes with Kumiko's; empty runs Kumiko
+# alone. Needs ultralytics installed -- see "Fusion" in README.md.
+MODEL="${MODEL:-}"
+MODEL_CONF="${MODEL_CONF:-}"           # model confidence; empty uses the encoder default (0.25)
+FUSE_CONTAIN="${FUSE_CONTAIN:-}"       # lower rejects more overlapping model boxes as redundant
+INSET_MAX="${INSET_MAX:-}"             # contained boxes smaller than this survive as inset panels
 # -----------------------------------------------------------------------------------------------
 
 LOCK_DIR="$HOME/.acbf-encode.lock"
@@ -67,6 +73,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+[ -n "$MODEL" ] && [ ! -f "$MODEL" ] && {
+    log "MODEL is set but $MODEL does not exist"
+    notify "Model file not found"
+    exit 1
+}
+
 for required in "$ENCODER" "$KUMIKO_DIR/kumikolib.py"; do
     if [ ! -e "$required" ]; then
         log "missing $required -- see README.md"
@@ -92,8 +104,12 @@ args=("$ENCODER" "$COMICS_DIR" --kumiko "$KUMIKO_DIR")
 [ "$FORCE" = "1" ] && args+=(--force)
 [ -n "$MIN_PANEL_SIZE" ] && args+=(--min-panel-size "$MIN_PANEL_SIZE")
 [ -n "$MARGIN" ] && args+=(--margin "$MARGIN")
+[ -n "$MODEL" ] && args+=(--model "$MODEL")
+[ -n "$MODEL_CONF" ] && args+=(--model-conf "$MODEL_CONF")
+[ -n "$FUSE_CONTAIN" ] && args+=(--fuse-contain "$FUSE_CONTAIN")
+[ -n "$INSET_MAX" ] && args+=(--inset-max "$INSET_MAX")
 
-log "starting sweep of $COMICS_DIR (rtl=$RTL force=$FORCE min=${MIN_PANEL_SIZE:-default} margin=${MARGIN:-0} expand=$EXPAND)"
+log "starting sweep of $COMICS_DIR (model=${MODEL:-none} rtl=$RTL force=$FORCE min=${MIN_PANEL_SIZE:-default} margin=${MARGIN:-0} expand=$EXPAND)"
 notify "Encoding started"
 started=$(date +%s)
 
