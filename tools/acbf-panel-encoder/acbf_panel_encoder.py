@@ -43,6 +43,94 @@ def load_kumiko(kumiko_path: str | None):
     )
 
 
+def load_model(path: str):
+    """Loads a YOLO panel detector. Ultralytics is imported lazily so the encoder runs without it."""
+    try:
+        from ultralytics import YOLO  # noqa: PLC0415
+    except ImportError:
+        raise SystemExit("--model needs ultralytics:  pip install ultralytics") from None
+    return YOLO(path, task="detect")
+
+
+def frame_class_ids(model) -> set[int]:
+    """The class ids that mean "panel".
+
+    Panel models are not consistently labelled -- chika's has {0: frame, 1: text}, others a single
+    "Comic Panel" class. Anything that looks like a frame is taken as a panel, and if nothing
+    matches, every class is (the model only detects one thing).
+    """
+    names = getattr(model, "names", None) or {}
+    wanted = {i for i, n in names.items() if any(k in str(n).lower() for k in ("frame", "panel"))}
+    return wanted or set(names)
+
+
+def detect_with_model(model, image_path: Path, conf: float, imgsz: int) -> list[tuple[int, int, int, int]]:
+    """Runs the model over one page, returning panel boxes as (x, y, w, h)."""
+    result = model.predict(str(image_path), imgsz=imgsz, conf=conf, verbose=False)[0]
+    keep = frame_class_ids(model)
+    boxes = []
+    for (x1, y1, x2, y2), cls in zip(
+        result.boxes.xyxy.cpu().numpy(), result.boxes.cls.cpu().numpy().astype(int),
+    ):
+        if cls in keep:
+            boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1)))
+    return boxes
+
+
+def iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    ax2, ay2, bx2, by2 = a[0] + a[2], a[1] + a[3], b[0] + b[2], b[1] + b[3]
+    iw = max(0, min(ax2, bx2) - max(a[0], b[0]))
+    ih = max(0, min(ay2, by2) - max(a[1], b[1]))
+    overlap = iw * ih
+    union = a[2] * a[3] + b[2] * b[3] - overlap
+    return overlap / union if union else 0.0
+
+
+def fuse(kumiko: list, model_boxes: list, threshold: float) -> list:
+    """Union of both detectors' boxes, keeping Kumiko's geometry where they agree.
+
+    The two fail on disjoint pages -- Kumiko traces gutters, so it is exact on ruled borders but
+    blind to panels that have none; the model recognises a panel semantically but bounds it loosely
+    and merges dense rows. So agreement keeps Kumiko's coordinates, and a model box matching nothing
+    is a panel Kumiko missed.
+
+    Deliberately IoU and not containment: an inset panel lies entirely inside its parent, so
+    containment would discard precisely the boxes this exists to recover. A small inset has low IoU
+    with the large panel around it and survives.
+    """
+    fused = list(kumiko)
+    for box in model_boxes:
+        if all(iou(box, existing) < threshold for existing in kumiko):
+            fused.append(box)
+    return fused
+
+
+def reading_order(boxes: list, rtl: bool) -> list:
+    """Sorts boxes into reading order by banding them into rows, then ordering within each row.
+
+    Fusing loses Kumiko's own ordering, and sorting purely by y interleaves panels of differing
+    heights. Boxes are grouped into a row while they overlap the band vertically, which keeps a
+    tall panel from splitting the row beside it.
+    """
+    if not boxes:
+        return boxes
+    rows: list[list] = []
+    for box in sorted(boxes, key=lambda b: b[1]):
+        for row in rows:
+            top = min(b[1] for b in row)
+            bottom = max(b[1] + b[3] for b in row)
+            centre = box[1] + box[3] / 2
+            if top < centre < bottom:
+                row.append(box)
+                break
+        else:
+            rows.append([box])
+    ordered = []
+    for row in rows:
+        ordered.extend(sorted(row, key=lambda b: -b[0] if rtl else b[0]))
+    return ordered
+
+
 def grow(panel: tuple[int, int, int, int], margin: float, width: int, height: int):
     """Grows a panel by [margin] of its own size on each side, clamped to the page.
 
@@ -85,6 +173,11 @@ def detect(
     min_panel_size: float | None,
     expand: bool,
     margin: float,
+    model=None,
+    model_conf: float = 0.25,
+    model_imgsz: int = 640,
+    fuse_iou: float = 0.5,
+    model_only: bool = False,
 ) -> list[Page]:
     pages: list[Page] = []
     with zipfile.ZipFile(archive_path) as archive, tempfile.TemporaryDirectory() as tmp:
@@ -120,6 +213,10 @@ def detect(
                 info = kumiko.get_infos()[0]
                 panels = [tuple(int(v) for v in p) for p in info["panels"]]
                 width, height = (int(v) for v in info["size"])
+                if model is not None:
+                    detected = detect_with_model(model, extracted, model_conf, model_imgsz)
+                    panels = detected if model_only else fuse(panels, detected, fuse_iou)
+                    panels = reading_order(panels, rtl)
                 if margin:
                     panels = [grow(p, margin, width, height) for p in panels]
             except Exception as exc:  # noqa: BLE001 - one bad page must not lose the chapter
@@ -236,6 +333,21 @@ def main() -> int:
         "tight gutters it tends to overrun neighbouring panels)",
     )
     parser.add_argument(
+        "--model",
+        metavar="PATH",
+        help="YOLO panel detector (.tflite/.pt) to fuse with Kumiko; needs ultralytics",
+    )
+    parser.add_argument("--model-conf", type=float, default=0.25, help="model confidence (default 0.25)")
+    parser.add_argument("--model-imgsz", type=int, default=640, help="model input size (default 640)")
+    parser.add_argument(
+        "--fuse-iou",
+        type=float,
+        default=0.5,
+        metavar="IOU",
+        help="a model box overlapping a Kumiko box by more than this is the same panel (default 0.5)",
+    )
+    parser.add_argument("--model-only", action="store_true", help="use the model alone, skipping Kumiko")
+    parser.add_argument(
         "--margin",
         type=float,
         default=0.0,
@@ -256,6 +368,9 @@ def main() -> int:
         parser.error("--output only makes sense with a single archive")
 
     kumiko_cls = load_kumiko(args.kumiko)
+    model = load_model(args.model) if args.model else None
+    if args.model_only and model is None:
+        parser.error("--model-only needs --model")
     failures = 0
 
     for position, archive_path in enumerate(archives, start=1):
@@ -279,6 +394,11 @@ def main() -> int:
             args.min_panel_size,
             args.expand,
             args.margin,
+            model,
+            args.model_conf,
+            args.model_imgsz,
+            args.fuse_iou,
+            args.model_only,
         )
         total = sum(len(p.panels) for p in pages)
         detected_pages = sum(1 for p in pages if p.panels)
